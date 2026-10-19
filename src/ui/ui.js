@@ -9,6 +9,19 @@ import { createState, addItem, removeItem, has, packWeight, packCapacity, wornIt
 import { profileSVG } from './profile.js';
 import { fmtClock, fmtDateTime } from '../sim/game.js';
 import { icon, WEATHER_ICON } from './icons.js';
+import { loadRecords, clearRecords, summarize, ENDING_LIST } from '../sim/records.js';
+
+// 作者主页（标题页引流）
+const SOCIALS = [
+  { name: 'X', handle: '@holooooox', url: 'https://x.com/holooooox',
+    svg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.8 3h3.1l-6.8 7.8L22 21h-6.2l-4.9-6.4L5.3 21H2.2l7.3-8.3L1.9 3h6.4l4.4 5.8L17.8 3Zm-1.1 16.2h1.7L7.3 4.7H5.5l11.2 14.5Z"/></svg>' },
+  { name: 'B站', handle: '主页', url: 'https://space.bilibili.com/3546871144384669',
+    svg: '<svg viewBox="0 0 24 24" aria-hidden="true" shape-rendering="crispEdges"><path fill="currentColor" d="M6 2h2v2h2v2h4V4h2V2h2v2h-2v2h4v2h2v12h-2v2H4v-2H2V8h2V6h4V4H6V2Zm-1 7v10h14V9H5Zm3 3h2v3H8v-3Zm6 0h2v3h-2v-3Z"/></svg>' },
+  { name: '抖音', handle: '耙耙柑', url: 'https://www.douyin.com/user/MS4wLjABAAAAcvrzbqpq6fhnCeniTItWgcz5kRWEtAEGCyQ_TWHBwI8',
+    svg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#25f4ee" d="M9.4 9.6v-1A6.6 6.6 0 1 0 14 21.1a6.6 6.6 0 0 1-4.6-11.5Z" opacity=".9"/><path fill="#fe2c55" d="M16.4 6.9A4.5 4.5 0 0 1 14.5 3h-3v12.9a2.7 2.7 0 1 1-2.1-2.7V10a5.8 5.8 0 1 0 5 5.7V9.2a7.3 7.3 0 0 0 4.4 1.4V7.6a4.4 4.4 0 0 1-2.4-.7Z"/><path fill="currentColor" d="M15.5 8.5a7.3 7.3 0 0 0 4.3 1.4V7a4.4 4.4 0 0 1-2.4-.7 4.5 4.5 0 0 1-2-3.2h-2.9V15a2.7 2.7 0 1 1-2-2.6V9.5A5.8 5.8 0 1 0 15.5 15V8.5Z"/></svg>' },
+  { name: 'GitHub', handle: '源码', url: 'https://github.com/holooooo/aotai-trek-sim',
+    svg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5a10.5 10.5 0 0 0-3.3 20.5c.5.1.7-.2.7-.5v-1.8c-2.9.6-3.5-1.4-3.5-1.4-.5-1.2-1.2-1.5-1.2-1.5-1-.7.1-.7.1-.7 1 .1 1.6 1.1 1.6 1.1.9 1.6 2.5 1.1 3.1.9.1-.7.4-1.1.7-1.4-2.3-.3-4.8-1.2-4.8-5.2 0-1.1.4-2.1 1.1-2.8-.1-.3-.5-1.3.1-2.8 0 0 .9-.3 2.9 1.1a10 10 0 0 1 5.2 0c2-1.4 2.9-1.1 2.9-1.1.6 1.5.2 2.5.1 2.8.7.7 1.1 1.7 1.1 2.8 0 4-2.5 4.9-4.8 5.2.4.3.7 1 .7 2v2.9c0 .3.2.6.7.5A10.5 10.5 0 0 0 12 1.5Z"/></svg>' },
+];
 
 const VITAL_ICON = { core: 'core', stamina: 'stamina', food: 'food', water: 'water', stress: 'stress', health: 'health', wet: 'wet' };
 const ICON_ARROW = '<svg class="navarrow" viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M8 1 L14 13 L8 10 L2 13Z" fill="currentColor"/></svg>';
@@ -94,8 +107,13 @@ export class UI {
         <div class="title-actions">
           ${hasSave ? '<button class="btn primary" data-act="continue">继续行程 <small>读取存档</small></button>' : ''}
           <button class="btn ${hasSave ? '' : 'primary'}" data-act="new">开始 <small>选择身份</small></button>
+          <button class="btn ghost" data-act="records">游玩记录 <small>${loadRecords().length ? `${loadRecords().length} 局` : '还没有记录'}</small></button>
           <button class="btn ghost" data-act="archive">事故档案 <small>真实案例</small></button>
           <button class="btn ghost" data-act="about">说明 <small>操作 · 机制</small></button>
+        </div>
+        <div class="socials">
+          <div class="socials-k">作者 · 关注我</div>
+          <div class="socials-row">${SOCIALS.map((x) => `<a class="social" href="${x.url}" target="_blank" rel="noopener">${x.svg}<span><b>${x.name}</b><small>${esc(x.handle)}</small></span></a>`).join('')}</div>
         </div>
       </div>
       <div class="title-foot">
@@ -105,8 +123,41 @@ export class UI {
     this._bind(page, {
       continue: () => this.app.continueGame(),
       new: () => this.showRoles(),
+      records: () => this.showRecords(() => this.app.toTitle()),
       archive: () => this.showArchive(() => this.app.toTitle()),
       about: () => this.showAbout(() => this.app.toTitle()),
+    });
+  }
+
+  showRecords(onBack) {
+    const list = loadRecords();
+    const sum = summarize(list);
+    const fmt = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const endName = (k) => ENDING_LIST.find((e) => e.id === k)?.name ?? k;
+    const tone = (r) => (r.type === 'dead' ? 'died' : r.type === 'cross' || r.type === 'rescued' ? '' : 'ok');
+    const S = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    const page = this._page(`
+      <div class="page-head"><div><span class="tag">RECORDS</span><h2>游玩记录</h2><div class="kicker">记录保存在这台设备的浏览器里，清除浏览器数据后会丢失。</div></div>
+        <button class="btn ghost" data-act="back">返回</button></div>
+      <div class="archive">
+        <div class="end-grid" style="margin:0">
+          ${S('总局数', sum.total)}${S('生还', sum.alive)}${S('遇难', sum.deaths)}${S('最远到达', sum.best.toFixed(1) + 'km')}
+        </div>
+        <div class="end-sec" style="margin:8px 0 0"><h3><span class="tag">结局</span>收集 ${ENDING_LIST.filter((e) => sum.unlocked.has(e.id)).length} / ${ENDING_LIST.length}</h3>
+          <div class="checklist">${ENDING_LIST.map((e) => `<span class="chip ${sum.unlocked.has(e.id) ? (e.id.startsWith('dead') ? 'no' : 'ok') : ''}">${sum.unlocked.has(e.id) ? esc(e.name) : '？？？'}</span>`).join('')}</div>
+        </div>
+        <div class="end-sec" style="margin:8px 0 0"><h3><span class="tag">历史</span>最近 ${list.length} 局</h3>
+          ${list.length ? list.map((r) => `<div class="fate ${tone(r)}"><b>${esc(endName(r.key))}</b> <small style="color:var(--muted)">${esc(r.roleName)} · ${fmt(r.at)}</small>
+            <p>${r.key === 'sausage' ? '没有进山。去景区吃了一根烤肠。' : `走到 ${r.progress}km · 山上 ${r.days} 天`} ${r.key === 'sausage' ? '' : ` · 最高 ${r.maxAlt}m · 最低体温 ${r.minCore}℃`}${r.saved ? ` · 帮助了 ${r.saved} 人` : ''}${r.lost ? ` · ${r.lost} 人没能下山` : ''}</p></div>`).join('') : '<div style="color:var(--muted)">还没有完成过一局。</div>'}
+        </div>
+        ${list.length ? '<div><button class="btn danger" data-act="clear">清空记录</button></div>' : ''}
+      </div>`, 'dim', 'records');
+    this._bind(page, {
+      back: onBack,
+      clear: async () => {
+        const c = await this.dialog({ who: '清空游玩记录？', text: ['所有历史和结局收集都会被删除。'], choices: [{ id: 'y', label: '清空' }, { id: 'n', label: '取消' }] });
+        if (c === 'y') { clearRecords(); this.showRecords(onBack); }
+      },
     });
   }
 
@@ -828,7 +879,7 @@ export class UI {
     const page = this._page(`
       <div class="ending">
         <div class="end-head"><h1>${esc(E.title)}</h1><div class="stamp ${E.tone}">${esc(E.grade)}</div></div>
-        <div style="color:var(--muted);margin-bottom:10px">${esc(role.name)} · ${esc(stats.time)}</div>
+        <div style="color:var(--muted);margin-bottom:10px">${esc(role.name)} · ${esc(stats.time)}${stats.collected ? ` · 结局收集 ${stats.collected}` : ''}${stats.newEnding ? ' · <span style="color:var(--yellow)">新结局！</span>' : ''}</div>
         <div class="end-story">${E.lines.map((l, i) => `<p style="animation-delay:${i * 0.25}s">${esc(l)}</p>`).join('')}</div>
         ${type !== 'sausage' ? `<div class="end-grid">
           ${S('山上天数', stats.days)}${S('实际游玩', stats.realMin + '分钟')}${S('最远到达', stats.progress + 'km')}${S('行走距离', stats.dist + 'km')}
@@ -847,6 +898,7 @@ export class UI {
         <div class="slogan">${SAUSAGE_SVG}${SLOGAN}</div>
         <div class="end-actions">
           <button class="btn primary" data-act="again">再来一次</button>
+          <button class="btn ghost" data-act="records">游玩记录</button>
           <button class="btn ghost" data-act="archive">全部事故档案</button>
           <button class="btn ghost" data-act="title">回到标题</button>
         </div>
@@ -854,6 +906,7 @@ export class UI {
     this._bind(page, {
       again: () => this.showRoles(),
       archive: () => this.showArchive(() => this.showEnding({ type, cause, role, stats, fates })),
+      records: () => this.showRecords(() => this.showEnding({ type, cause, role, stats, fates })),
       title: () => this.app.toTitle(),
     });
   }

@@ -11,6 +11,7 @@ import { weatherAt, windVectors, airTemp, sunElevation, beaufort, compassName } 
 import { computeEnv, stepBody, coreFeel } from './body.js';
 import { has, removeItem, addItem, packWeight, packCapacity, tentItem, wornItems } from './state.js';
 import { clamp, lerp } from '../world/noise.js';
+import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST } from './records.js';
 
 export const TIME_SCALE = 4; // 游戏分钟 / 现实秒
 const BASE_SPEED = 3.2;
@@ -1665,6 +1666,20 @@ export class Game {
     };
     if (stats.fines > 5000) stats.fines = 5000;
     localStorage.removeItem(SAVE_KEY);
+    // 游玩记录
+    const key = endingKey(type, cause);
+    const isNew = !summarize().unlocked.has(key);
+    const okFates = ['safe', 'rescued', 'survived', 'followed', 'together', 'helped', 'warned', 'waited'];
+    const records = addRecord({
+      at: Date.now(), role: this.role.id, roleName: this.role.short, key, type, cause: cause || null,
+      progress: Number(stats.progress), dist: Number(stats.dist), days: stats.days, maxAlt: stats.maxAlt,
+      minCore: Number(stats.minCore), realMin: realMin, nights: stats.nights,
+      saved: fates.filter((f) => okFates.includes(f.fate)).length, lost: fates.filter((f) => f.fate === 'died').length,
+    });
+    const sum = summarize(records);
+    stats.collected = `${ENDING_LIST.filter((e) => sum.unlocked.has(e.id)).length} / ${ENDING_LIST.length}`;
+    stats.newEnding = isNew;
+    stats.runs = sum.total;
     this.ui.showHud(false);
     this.ui.hideCampMenu();
     this.ui.hideCampPlacer();

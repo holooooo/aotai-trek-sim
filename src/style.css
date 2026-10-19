@@ -112,6 +112,18 @@ a { color: var(--blue); }
 .sausage { width: 56px; height: 24px; flex: none; image-rendering: pixelated; }
 .title-actions { display: flex; flex-direction: column; gap: 12px; max-width: 320px; margin-top: 28px; animation: rise 0.9s 0.15s cubic-bezier(.2, .8, .2, 1) both; }
 .title-actions .btn { justify-content: space-between; font-size: 22px; }
+.socials { margin-top: 22px; max-width: 520px; animation: rise 0.9s 0.22s cubic-bezier(.2, .8, .2, 1) both; }
+.socials-k { font-family: var(--display); font-size: 13px; color: var(--muted); letter-spacing: 0.12em; margin-bottom: 8px; }
+.socials-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.social { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 9px; min-height: 44px; text-decoration: none; color: var(--ink);
+  background: rgba(11, 17, 22, 0.72); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5);
+  transition: border-color 0.15s, transform 0.15s; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+.social:hover { border-color: var(--orange); transform: translateY(-2px); }
+.social:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5); }
+.social svg { width: 22px; height: 22px; flex: none; }
+.social span { display: flex; flex-direction: column; line-height: 1.1; }
+.social b { font-family: var(--display); font-weight: normal; font-size: 15px; }
+.social small { font-size: 11px; color: var(--muted); }
 .title-foot { color: var(--muted); font-size: 12px; max-width: 640px; animation: rise 0.9s 0.3s both; }
 .title-foot b { color: var(--ink2); }
 @keyframes rise { from { opacity: 0; transform: translateY(18px); } }
@@ -335,6 +347,8 @@ a { color: var(--blue); }
   .title-main { font-size: 72px; }
   .title-actions { flex-direction: row; flex-wrap: wrap; max-width: none; margin-top: 12px; }
   .title-actions .btn { font-size: 18px; }
+  .socials { margin-top: 12px; }
+  .socials-k { display: none; }
   #dialog { align-items: center; }
   .dlg { max-height: calc(100dvh - 20px); }
   #joyBase { width: 104px; height: 104px; }

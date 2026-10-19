@@ -186,6 +186,13 @@ npm run deploy       # 构建并部署到 Cloudflare Pages（项目名 aotai-tre
   ```
 - `npm run deploy` 调用 `wrangler pages deploy`，需要事先安装 [wrangler](https://developers.cloudflare.com/workers/wrangler/) 并 `wrangler login`。
 
+## 作者
+
+- X：[@holooooox](https://x.com/holooooox)
+- B 站：[主页](https://space.bilibili.com/3546871144384669)
+- 抖音：[耙耙柑](https://www.douyin.com/user/MS4wLjABAAAAcvrzbqpq6fhnCeniTItWgcz5kRWEtAEGCyQ_TWHBwI8)
+- 在线试玩：<https://aotai-trek-sim.pages.dev>
+
 ## 致谢与许可
 
 - 字体：[站酷庆科黄油体](https://github.com/google/fonts/tree/main/ofl/zcoolqingkehuangyou)、[VT323](https://github.com/google/fonts/tree/main/ofl/vt323)，均以 SIL Open Font License 1.1 授权（见 `public/fonts/OFL.txt`）。
