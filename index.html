@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="description" content="鳌太线冬季穿越模拟器：体素风格生存模拟。门口没有烤肠的山，不要爬。" />
+  <title>鳌太线 · 门口没有烤肠的山</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b1116'/%3E%3Cpath d='M0 13 L5 5 L8 9 L11 3 L16 13Z' fill='%23e8eef2'/%3E%3Crect x='3' y='12' width='10' height='2' fill='%23ff5a1f'/%3E%3C/svg%3E" />
+  <style>
+    @font-face {
+      font-family: 'ZCOOL QingKe HuangYou';
+      src: url('fonts/zcool.woff') format('woff');
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'VT323';
+      src: url('fonts/vt323.woff') format('woff');
+      font-display: swap;
+    }
+    html, body { background: #0b1116; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="fx">
+    <div class="fx fx-wind"></div>
+    <div class="fx fx-frost"></div>
+    <div class="fx fx-cold"></div>
+    <div class="fx fx-hurt"></div>
+    <div class="fx fx-stress"></div>
+    <div class="fx fx-white"></div>
+    <div class="fx fx-dark"></div>
+    <div class="fx fx-flash"></div>
+  </div>
+  <div id="hud" hidden></div>
+  <div id="joy" hidden><div id="joyBase"><div id="joyKnob"></div></div></div>
+  <div id="screen"></div>
+  <div id="sheet"></div>
+  <div id="dialog"></div>
+  <div id="card"></div>
+  <div id="busy"></div>
+  <div id="toasts"></div>
+  <div id="boot">
+    <div class="boot-inner">
+      <div class="boot-title">鳌太线</div>
+      <div class="boot-sub">正在生成山脊……</div>
+    </div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

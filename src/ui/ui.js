@@ -1,0 +1,860 @@
+// DOM 界面：标题、角色、商店、HUD、弹窗、背包、地图、营地、结局、事故档案。
+import { ROLES, roleById } from '../data/roles.js';
+import { ITEMS, CATEGORIES, SHOP_ORDER, SLOTS, SLOT_NAMES } from '../data/items.js';
+import { ARCHIVE, LESSONS } from '../data/archive.js';
+import { ENDINGS, SLOGAN } from '../data/endings.js';
+import { WAYPOINTS, BRANCHES } from '../data/route.js';
+import { npcById } from '../data/npcs.js';
+import { createState, addItem, removeItem, has, packWeight, packCapacity, wornItems, tentItem, bagItem, padItem } from '../sim/state.js';
+import { profileSVG } from './profile.js';
+import { fmtClock, fmtDateTime } from '../sim/game.js';
+import { icon, WEATHER_ICON } from './icons.js';
+
+const VITAL_ICON = { core: 'core', stamina: 'stamina', food: 'food', water: 'water', stress: 'stress', health: 'health', wet: 'wet' };
+const ICON_ARROW = '<svg class="navarrow" viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M8 1 L14 13 L8 10 L2 13Z" fill="currentColor"/></svg>';
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 像素烤肠
+export const SAUSAGE_SVG = `<svg class="sausage" viewBox="0 0 28 12" shape-rendering="crispEdges" aria-hidden="true">
+<rect x="0" y="5" width="28" height="2" fill="#9a9a9a"/>
+<rect x="4" y="2" width="18" height="8" fill="#b5532a"/><rect x="2" y="3" width="2" height="6" fill="#b5532a"/><rect x="22" y="3" width="2" height="6" fill="#b5532a"/>
+<rect x="5" y="3" width="15" height="2" fill="#d8743f"/>
+<rect x="7" y="2" width="1" height="8" fill="#7a3418"/><rect x="11" y="2" width="1" height="8" fill="#7a3418"/><rect x="15" y="2" width="1" height="8" fill="#7a3418"/><rect x="19" y="2" width="1" height="8" fill="#7a3418"/>
+</svg>`;
+
+
+const VITALS = [
+  ['core', '体温'], ['stamina', '体力'], ['food', '饱食'], ['water', '水分'], ['stress', '压力'], ['health', '健康'], ['wet', '潮湿'],
+];
+
+export class UI {
+  constructor({ mobile, audio, input }) {
+    this.isMobile = mobile;
+    this.audio = audio;
+    this.input = input;
+    this.app = null;
+    this.game = null;
+    this.dialogOpen = false;
+    this.sheetOpen = null;
+    this.screenOpen = null;
+    this.dialogQueue = Promise.resolve();
+    this.el = {
+      screen: $('#screen'), hud: $('#hud'), sheet: $('#sheet'), dialog: $('#dialog'), card: $('#card'),
+      busy: $('#busy'), toasts: $('#toasts'), joy: $('#joy'), canvas: $('#c'),
+      fx: {
+        cold: $('.fx-cold'), hurt: $('.fx-hurt'), stress: $('.fx-stress'), white: $('.fx-white'), dark: $('.fx-dark'), flash: $('.fx-flash'),
+        frost: $('.fx-frost'), wind: $('.fx-wind'),
+      },
+    };
+    this.el.sheet.addEventListener('pointerdown', (e) => { if (e.target === this.el.sheet) this.closeSheet(); });
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('button')) this.audio?.click();
+    });
+  }
+
+  get modalOpen() { return this.dialogOpen || !!this.sheetOpen || !!this.screenOpen; }
+  _syncInput() { this.input?.setEnabled(!this.modalOpen); }
+
+  // 简单事件委托：data-act
+  _bind(root, handlers) {
+    root.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-act]');
+      if (!b || !root.contains(b) || b.disabled) return;
+      const fn = handlers[b.dataset.act];
+      if (fn) fn(b.dataset, b, e);
+    });
+  }
+
+  // ———————————————————— 页面 ————————————————————
+  _page(html, cls = 'dim', name = 'page') {
+    this.el.screen.innerHTML = `<div class="page ${cls}">${html}</div>`;
+    this.screenOpen = name;
+    this._syncInput();
+    const page = this.el.screen.firstElementChild;
+    page.scrollTop = 0;
+    return page;
+  }
+
+  closeScreen() {
+    this.el.screen.innerHTML = '';
+    this.screenOpen = null;
+    this._syncInput();
+  }
+
+  showTitle({ hasSave }) {
+    const page = this._page(`
+      <div class="title-block">
+        <div class="title-kicker">QINLING · 3767M · WINTER</div>
+        <div class="title-main">鳌太线</div>
+        <div class="title-sub">冬季穿越模拟器</div>
+        <div class="stamp">禁止穿越</div>
+        <div class="tagline">${SAUSAGE_SVG}<span>门口没有烤肠的山，不要爬。</span></div>
+        <div class="title-actions">
+          ${hasSave ? '<button class="btn primary" data-act="continue">继续行程 <small>读取存档</small></button>' : ''}
+          <button class="btn ${hasSave ? '' : 'primary'}" data-act="new">开始 <small>选择身份</small></button>
+          <button class="btn ghost" data-act="archive">事故档案 <small>真实案例</small></button>
+          <button class="btn ghost" data-act="about">说明 <small>操作 · 机制</small></button>
+        </div>
+      </div>
+      <div class="title-foot">
+        本游戏根据公开报道改编，人物均为化名或虚构。鳌太线位于太白山国家级自然保护区，<b>自2018年起禁止穿越</b>。
+        游戏中的路线、海拔与数值均为近似，<b>不能作为任何出行参考</b>。
+      </div>`, 'title-page', 'title');
+    this._bind(page, {
+      continue: () => this.app.continueGame(),
+      new: () => this.showRoles(),
+      archive: () => this.showArchive(() => this.app.toTitle()),
+      about: () => this.showAbout(() => this.app.toTitle()),
+    });
+  }
+
+  _avatar(look) {
+    const hex = (n) => '#' + n.toString(16).padStart(6, '0');
+    return `<div class="avatar" style="--h:${hex(look.hat)};--s:${hex(look.skin)};--j:${hex(look.jacket)};--l:${hex(look.pants)}">
+      <i class="a-hat"></i><i class="a-face"></i><i class="a-body"></i><i class="a-legs"></i></div>`;
+  }
+
+  showRoles() {
+    let sel = null;
+    const card = (r) => `
+      <button class="role" data-act="pick" data-id="${r.id}">
+        <div class="role-top">${this._avatar(r.look)}<div><h3>${esc(r.name)}</h3><div class="quote">${esc(r.tagline)}</div></div></div>
+        <div class="money">¥${r.money.toLocaleString()}</div>
+        <div class="desc">${esc(r.desc)}</div>
+        <ul>${r.skills.map((s) => `<li><b>${esc(s.name)}</b>：${esc(s.desc)}</li>`).join('')}
+            ${r.flaws.map((s) => `<li class="flaw"><b>${esc(s.name)}</b>：${esc(s.desc)}</li>`).join('')}</ul>
+        <div class="gear">初始装备：${Object.keys(r.inv).map((id) => esc(ITEMS[id]?.name ?? id)).join('、')}</div>
+      </button>`;
+    const page = this._page(`
+      <div class="page-head"><div><span class="tag">STEP 1/2</span><h2>选择身份</h2><div class="kicker">12月31日，元旦假期。一年中最冷、事故最集中的时候之一。</div></div>
+        <button class="btn ghost" data-act="back">返回</button></div>
+      <div class="roles">${ROLES.map(card).join('')}</div>
+      <div class="role-bar"><button class="btn primary" data-act="go" disabled>先选一个身份</button></div>`, 'dim', 'roles');
+    const go = $('[data-act="go"]', page);
+    this._bind(page, {
+      back: () => this.app.toTitle(),
+      pick: (d, b) => {
+        sel = d.id;
+        page.querySelectorAll('.role').forEach((x) => x.classList.toggle('sel', x === b));
+        go.disabled = false;
+        go.textContent = `以「${roleById(sel).short}」身份前往塘口村 →`;
+        if (this.isMobile) b.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      },
+      go: () => sel && this.showShop(createState(sel)),
+    });
+  }
+
+  // ———————————————————— 商店 ————————————————————
+  showShop(st) {
+    const role = roleById(st.role);
+    const bought = {};
+    let cat = 'camp';
+    const page = this._page(`
+      <div class="page-head"><div><span class="tag">STEP 2/2</span><h2>塘口村 · 小卖部 &amp; 户外店</h2>
+        <div class="kicker">凌晨四点半。老板披着军大衣，打着哈欠给你开了门。这是最后一个能买到东西的地方。</div></div>
+        <button class="btn ghost" data-act="back">返回</button></div>
+      <div class="shop">
+        <div>
+          <div class="shop-tabs">${CATEGORIES.map((c) => `<button data-act="cat" data-id="${c.id}">${c.name}</button>`).join('')}</div>
+          <div class="items"></div>
+        </div>
+        <div class="cart panel"></div>
+      </div>`, 'dim', 'shop');
+    const itemsEl = $('.items', page);
+    const cartEl = $('.cart', page);
+
+    const ownedCount = (id) => {
+      const it = ITEMS[id];
+      if (['water', 'gas'].includes(it.kind) || ['warmer', 'powerbank', 'hotwater_fill', 'insurance'].includes(id)) return bought[id] || 0;
+      return st.inv[id] || 0;
+    };
+    const canBuy = (id) => {
+      const it = ITEMS[id];
+      if (it.soldOut) return false;
+      if (st.money < it.price) return false;
+      if (it.needs && !has(st, it.needs)) return false;
+      if ((id === 'hotwater_fill' || id === 'insurance') && bought[id]) return false;
+      if (it.kind === 'pack' && has(st, id)) return false;
+      if (['tent', 'bag', 'pad', 'cloth'].includes(it.kind) && (st.inv[id] || 0) >= 1) return false;
+      if (['tool'].includes(it.kind) && !['firstaid', 'blanket'].includes(id) && (st.inv[id] || 0) >= 1 && id !== 'powerbank') return false;
+      return true;
+    };
+    const undo = (id) => {
+      const it = ITEMS[id];
+      if (!bought[id]) return;
+      bought[id]--;
+      st.money += it.price;
+      if (it.kind === 'water') st.water.liquid = Math.max(0, st.water.liquid - it.liters);
+      else if (it.kind === 'gas') { const k = id === 'gas_alpine' ? 'alpine' : 'normal'; st.gas[k] = Math.max(0, st.gas[k] - it.units); }
+      else if (id === 'warmer') st.warmers = Math.max(0, st.warmers - it.pieces);
+      else if (id === 'powerbank') { st.powerbank = Math.max(0, st.powerbank - it.charges); removeItem(st, 'powerbank'); }
+      else if (id === 'hotwater_fill') { st.thermos.l = 0; st.thermos.temp = 20; }
+      else if (id === 'insurance') st.flags.insurance = false;
+      else removeItem(st, id);
+      if (id === 'thermos' && !has(st, 'thermos') && bought.hotwater_fill) undo('hotwater_fill');
+    };
+
+    const renderItems = () => {
+      page.querySelectorAll('.shop-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.id === cat));
+      const ids = SHOP_ORDER.filter((id) => ITEMS[id].cat === cat && !ITEMS[id].hidden);
+      itemsEl.innerHTML = ids.map((id) => {
+        const it = ITEMS[id];
+        const n = ownedCount(id);
+        const startOwned = (role.inv[id] || 0) > 0;
+        if (it.soldOut) {
+          return `<div class="item soldout"><div class="nm">${esc(it.name)}</div><div class="meta">¥${it.price}</div>
+            <div class="ds">${esc(it.desc)}</div><div class="stamp">本店不卖</div></div>`;
+        }
+        return `<div class="item ${startOwned ? 'owned' : ''}">
+          <div class="nm">${esc(it.name)}</div>
+          <div class="qty"><button data-act="minus" data-id="${id}" ${bought[id] ? '' : 'disabled'}>−</button><span>${n}</span>
+            <button data-act="plus" data-id="${id}" ${canBuy(id) ? '' : 'disabled'}>+</button></div>
+          <div class="meta"><b>¥${it.price}</b> · ${it.weight ? it.weight + 'kg' : '—'}</div>
+          <div class="ds">${esc(it.desc)}</div></div>`;
+      }).join('');
+    };
+
+    const checklist = () => {
+      const bag = bagItem(st);
+      const food = ['biscuit', 'chocolate', 'jerky', 'bar', 'gel', 'noodle', 'selfheat'].reduce((a, id) => a + (st.inv[id] || 0), 0);
+      const shell = wornItems(st).shell;
+      const items = [
+        ['帐篷', !!tentItem(st)],
+        ['冬季睡袋', bag && ITEMS[bag].comfort <= -5],
+        ['防潮垫', !!padItem(st)],
+        ['保暖层', !!wornItems(st).insul],
+        ['防风外壳', shell && ITEMS[shell].windproof >= 0.5],
+        ['手套', has(st, 'gloves') || has(st, 'mitts')],
+        ['帽子', has(st, 'hat')],
+        ['头灯', has(st, 'headlamp')],
+        ['炉头+锅+气罐', has(st, 'stove') && has(st, 'pot') && st.gas.normal + st.gas.alpine > 0],
+        ['保温杯', has(st, 'thermos')],
+        [`食物×${food}`, food >= 10],
+        [`水 ${st.water.liquid.toFixed(1)}L`, st.water.liquid >= 1.5 || st.thermos.l > 0],
+        ['冰爪', has(st, 'crampons') || has(st, 'microspikes')],
+        ['卫星通讯', has(st, 'satcomm')],
+      ];
+      return items.map(([n, ok]) => `<span class="chip ${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'} ${n}</span>`).join('');
+    };
+
+    const renderCart = () => {
+      const w = packWeight(st), cap = packCapacity(st);
+      const pct = Math.min(100, (w / cap) * 100);
+      cartEl.innerHTML = `
+        <div class="row"><span>${esc(role.name)}</span><span>余额</span></div>
+        <div class="big mono" style="color:${st.money < 200 ? 'var(--red)' : 'var(--green)'}">¥${st.money.toLocaleString()}</div>
+        <div class="row"><span>负重</span><span class="mono" style="font-size:20px;color:${w > cap ? 'var(--red)' : 'var(--ink)'}">${w.toFixed(1)} / ${cap} kg</span></div>
+        <div class="meter"><i style="width:${pct}%;background:${w > cap ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)'}"></i></div>
+        <div class="hide-m"><div class="row" style="margin-bottom:6px"><span>冬季装备检查</span></div><div class="checklist">${checklist()}</div></div>
+        <div class="shop-note hide-m">含身上穿的衣服。超过背包承重会更慢、更累。</div>
+        <button class="btn primary" data-act="depart">出发 →</button>`;
+    };
+    const render = () => { renderItems(); renderCart(); };
+    render();
+    this._bind(page, {
+      back: () => this.showRoles(),
+      cat: (d) => { cat = d.id; renderItems(); },
+      plus: (d) => { const it = ITEMS[d.id]; if (!canBuy(d.id)) return; st.money -= it.price; addItem(st, d.id); bought[d.id] = (bought[d.id] || 0) + 1; render(); },
+      minus: (d) => { undo(d.id); render(); },
+      depart: async () => {
+        const w = packWeight(st), cap = packCapacity(st);
+        const warn = [];
+        if (!tentItem(st) && !bagItem(st)) warn.push('你没有帐篷，也没有睡袋。2026年元旦，一支同样只带了一日轻装包的队伍，三人没能下山。');
+        else if (!tentItem(st)) warn.push('你没有帐篷。');
+        if (w > cap) warn.push(`背包超重（${w.toFixed(1)}/${cap}kg），你会走得很慢、很累。`);
+        if (!wornItems(st).insul) warn.push('你没有羽绒服或棉服这样的保暖层。');
+        if (warn.length) {
+          const c = await this.dialog({ who: '老板', sub: '把钱收进抽屉，抬头看了你一眼', text: ['"你就穿这个上山？"', ...warn], choices: [{ id: 'back', label: '再买点东西' }, { id: 'go', label: '就这样出发' }] });
+          if (c !== 'go') return;
+        }
+        this.app.depart(st);
+      },
+    });
+  }
+
+  // ———————————————————— 档案 / 说明 ————————————————————
+  showArchive(onBack) {
+    const page = this._page(`
+      <div class="page-head"><div><span class="tag">ARCHIVE</span><h2>事故档案</h2><div class="kicker">以下内容根据公开报道整理。每一行数字背后，都是一个没能回家的人。</div></div>
+        <button class="btn ghost" data-act="back">返回</button></div>
+      <div class="archive">${ARCHIVE.map((a) => `
+        <div class="case"><div class="when">${esc(a.when)}</div><div><h4>${esc(a.title)}</h4><p>${esc(a.body)}</p>
+          <div class="src">来源：${a.src.map((s) => `<a href="${esc(s.u)}" target="_blank" rel="noopener">${esc(s.t)}</a>`).join('')}</div></div></div>`).join('')}
+      </div>
+      <div class="slogan">${SAUSAGE_SVG}${SLOGAN}</div>`, 'dim', 'archive');
+    this._bind(page, { back: onBack });
+  }
+
+  showAbout(onBack) {
+    const page = this._page(`
+      <div class="page-head"><div><span class="tag">ABOUT</span><h2>说明</h2></div><button class="btn ghost" data-act="back">返回</button></div>
+      <div class="about">
+        <h3>目标</h3>
+        <p>从塘口村出发，沿鳌山—太白山山脊走到拔仙台（约113公里），或者在合适的时候下撤。你会在一年中最冷的元旦假期出发。</p>
+        <h3>操作</h3>
+        <p>电脑：<kbd>WASD</kbd>/方向键移动，鼠标拖拽转视角，滚轮缩放，<kbd>Q</kbd><kbd>E</kbd>转视角；<kbd>F</kbd> 沿路走，<kbd>空格</kbd> 按住稳住（抗阵风），<kbd>R</kbd> 休息，<kbd>C</kbd> 扎营，<kbd>B</kbd> 背包，<kbd>M</kbd> 地图，<kbd>Esc</kbd> 菜单，<kbd>1</kbd>-<kbd>5</kbd> 选择对话选项。</p>
+        <p>手机：左下角拖动摇杆移动，右侧拖动屏幕转视角，双指缩放。横屏、竖屏都可以玩。</p>
+        <h3>身体</h3>
+        <p><b>核心体温</b>是最重要的数值。风寒、潮湿、饥饿、疲劳都会让它下降；吃热的、喝热的、穿上保暖层、钻进睡袋能让它回升。低于35℃是失温，低于28℃就是死亡。只有护士能读出准确数字，其他人只能凭感觉。</p>
+        <p><b>穿衣</b>：走路产热多，穿着羽绒服会出汗，湿掉的衣服不保暖；停下来不穿保暖层，很快就会冷。<b>棉质衣物</b>湿了几乎不保暖。</p>
+        <p><b>压力</b>过高会出现幻觉。<b>水</b>会结冰，普通气罐在低温下很难点着。</p>
+        <h3>山脊</h3>
+        <p>大风天在山脊上会有<b>阵风</b>，看到"阵风！"提示时按住【稳住】压低重心，否则可能被吹倒，甚至被推下刃脊。<b>大雾</b>里路标会消失，"沿路走"可能会带偏，GPS能帮你找回路线。</p>
+        <p><b>扎营</b>要看风：在背风坡、大石头后扎营；帐篷尾部（低矮的一端）对着来风。门朝来风会灌风积雪，侧面迎风容易被吹塌。</p>
+        <h3>下撤与求救</h3>
+        <p>任何时候都可以原路返回。2800营地可以向南坡下撤到核桃坪。有信号（且没开飞行模式）或有卫星通讯器时可以求救，求救后请原地等待——救援队会去你报告的位置。</p>
+        <h3>声明</h3>
+        <p>本游戏根据公开报道和"神秘园"系列视频讲述的事件改编，人物均为化名或虚构，情节经过艺术加工，仅用于安全警示。鳌太线自2018年起禁止穿越。游戏中的路线、海拔、气温与生理模型均为近似值，不能作为出行依据。</p>
+        <p>字体：站酷庆科黄油体、VT323（SIL OFL 1.1）。引擎：three.js。</p>
+      </div>`, 'dim', 'about');
+    this._bind(page, { back: onBack });
+  }
+
+  // ———————————————————— HUD ————————————————————
+  showHud(on) {
+    const hud = this.el.hud;
+    if (!on) { hud.hidden = true; this.el.joy.hidden = true; return; }
+    if (!hud.dataset.built) {
+      hud.dataset.built = '1';
+      const ticks = WAYPOINTS.map((w) => `<i class="tick ${w.camp ? 'camp' : ''} ${w.bailout ? 'bail' : ''}" data-wp="${w.id}" style="left:${(w.km / WAYPOINTS[WAYPOINTS.length - 1].km) * 100}%"></i>`).join('');
+      hud.innerHTML = `
+        <div class="hud-left">
+          <div class="device hcard">
+            <div class="dev-top">
+              <div class="dev-clock"><b data-h="clock">05:30</b><small data-h="date"></small></div>
+              <div class="dev-wx"><span data-h="wxicon"></span><span data-h="wx"></span></div>
+            </div>
+            <div class="dev-grid">
+              <div><small>气温</small><b data-h="air"></b></div>
+              <div><small>体感</small><b data-h="feel"></b></div>
+              <div class="dev-wind" data-h="windbox">
+                <svg class="dial" viewBox="0 0 30 30"><circle class="ring" cx="15" cy="15" r="13"/><g class="needle" data-h="needle"><path d="M15 3 L20 19 L15 15.5 L10 19Z" fill="currentColor"/></g></svg>
+                <div><small data-h="windk">风</small><b data-h="wind"></b></div>
+              </div>
+              <div><small>海拔</small><b data-h="alt"></b></div>
+            </div>
+          </div>
+          <div class="route hcard">
+          <div class="route-head"><span data-h="routek"></span><b data-h="km"></b></div>
+          <div class="route-bar"><div class="track"></div><div class="done" data-h="done"></div>${ticks}<div class="me" data-h="me"></div></div>
+          <div class="route-next" data-h="next"></div>
+        </div>
+          <div class="vitals hcard">
+            ${VITALS.map(([k, n]) => `<div class="vital" data-v="${k}">${icon(VITAL_ICON[k], { size: 16 })}<span class="lb">${n}</span><div class="bar"><i></i></div><span class="num"></span></div>`).join('')}
+            <div class="chips"></div>
+            <div class="comp" hidden></div>
+          </div>
+          <div class="alerts">
+            <div class="pill gps" data-h="gps" hidden></div>
+            <div class="pill lost" data-h="lost" hidden>${icon('warn', { size: 14 })} 偏离路线</div>
+            <div class="pill rescue" data-h="rescue" hidden></div>
+          </div>
+        </div>
+        <div class="hud-right">
+          <div class="ibtns">
+            <button class="ibtn" data-act="pack" title="背包 B">${icon('pack', { size: 24 })}<span>背包</span></button>
+            <button class="ibtn" data-act="map" title="地图 M">${icon('map', { size: 24 })}<span>地图</span></button>
+            <button class="ibtn" data-act="menu" title="菜单 Esc">${icon('menu', { size: 24 })}<span>菜单</span></button>
+          </div>
+          <div class="pill phone" data-h="phone"></div>
+        </div>
+        <div class="actions">
+          <div class="act-row">
+            <button class="abtn" data-act="rest">${icon('rest', { size: 20 })}休息<kbd>R</kbd></button>
+            <button class="abtn" data-act="camp">${icon('camp', { size: 20 })}扎营<kbd>C</kbd></button>
+            <button class="abtn" data-act="retreat">${icon('retreat', { size: 20 })}下撤<kbd>X</kbd></button>
+            <button class="abtn sos" data-act="sos">${icon('sos', { size: 20, accent: '#e5383b' })}求救<kbd>H</kbd></button>
+          </div>
+          <div class="act-row">
+            <button class="abtn big hold" data-hold="crouch">${icon('brace', { size: 26 })}稳住<kbd>␣</kbd></button>
+            <button class="abtn big" data-act="auto">${icon('auto', { size: 26 })}沿路走<kbd>F</kbd></button>
+          </div>
+        </div>
+        ${this.isMobile ? '' : '<div class="keyhint"><span><kbd>WASD</kbd>移动</span><span><kbd>拖拽</kbd><kbd>Q</kbd><kbd>E</kbd>视角</span><span><kbd>F</kbd>沿路走</span><span><kbd>空格</kbd>稳住</span><span><kbd>B</kbd>背包</span><span><kbd>M</kbd>地图</span></div>'}
+        <div class="gust">阵　风<small>按住【稳住】</small></div>`;
+      this.h = {};
+      hud.querySelectorAll('[data-h]').forEach((e) => { this.h[e.dataset.h] = e; });
+      this.hv = {};
+      hud.querySelectorAll('[data-v]').forEach((e) => { this.hv[e.dataset.v] = { root: e, bar: e.querySelector('i'), num: e.querySelector('.num') }; });
+      this.hTicks = [...hud.querySelectorAll('.tick')];
+      this.hDevice = hud.querySelector('.device');
+      this.hChips = hud.querySelector('.chips');
+      this.hComp = hud.querySelector('.comp');
+      this.hActions = hud.querySelector('.actions');
+      this.hAuto = hud.querySelector('[data-act="auto"]');
+      this.hCrouch = hud.querySelector('[data-hold="crouch"]');
+      this.hGust = hud.querySelector('.gust');
+      this._bind(hud, {
+        pack: () => this.openPack(),
+        map: () => this.openMap(),
+        menu: () => this.openMenu(),
+        auto: () => this.app.toggleAuto(),
+        rest: () => this.app.restMenu(),
+        camp: () => this.app.camp(),
+        retreat: () => this.app.retreat(),
+        sos: () => this.app.sos(),
+      });
+    }
+    hud.hidden = false;
+    this.el.joy.hidden = !this.isMobile;
+  }
+
+  _set(el, html) { if (el._v !== html) { el._v = html; el.innerHTML = html; } }
+
+  hud(d) {
+    if (!this.h) return;
+    const h = this.h;
+    this._lastHud = d;
+    this._set(h.clock, d.clock);
+    this._set(h.date, `${d.date} · 第${d.day}天`);
+    this.hDevice.classList.toggle('night', d.night);
+    this._set(h.wxicon, icon(WEATHER_ICON[d.wid === 'clear' && d.night ? 'clearNight' : d.wid] || 'cloud', { size: 24 }));
+    this._set(h.wx, d.weather);
+    this._set(h.air, `${d.air}<em>°</em>`);
+    this._set(h.feel, `<span class="${d.feel < -30 ? 'feel-danger' : ''}">${d.feel}</span><em>°</em>`);
+    h.needle.style.transform = `rotate(${d.windRel}rad)`;
+    h.windbox.classList.toggle('danger', d.bft >= 8);
+    h.windbox.classList.toggle('warn', d.bft >= 6 && d.bft < 8);
+    this._set(h.windk, `风 ${d.bft}级`);
+    this._set(h.wind, `${d.wind}<em>m/s</em>`);
+    this._set(h.alt, `${d.alt}<em>m</em>`);
+    this._set(h.routek, esc(d.route));
+    this._set(h.km, `${d.km.toFixed(1)}<em> / ${d.total.toFixed(0)} km</em>`);
+    const tot = d.total || 1;
+    h.done.style.width = `${Math.min(100, (d.maxKm / tot) * 100)}%`;
+    h.me.style.left = `${Math.min(100, (d.km / tot) * 100)}%`;
+    const showTicks = d.onMain;
+    for (const t of this.hTicks) { t.style.display = showTicks ? '' : 'none'; t.classList.toggle('seen', !!d.visited[t.dataset.wp]); }
+    this._set(h.next, d.next ? `<span>下一站 <b>${esc(d.next.name)}</b></span><span class="mono">${d.next.km.toFixed(1)} km</span>` : '');
+    h.gps.hidden = !d.gpsArrow;
+    if (d.gpsArrow) h.gps.innerHTML = `${ICON_ARROW.replace('class="navarrow"', `class="navarrow" style="transform:rotate(${-d.gpsArrow.rel}rad)"`)}GPS ${d.gpsArrow.off > 80 ? `偏离 <b>${d.gpsArrow.off}</b>m` : '在轨迹上'}`;
+    h.lost.hidden = !d.status.lost;
+    h.rescue.hidden = d.rescue === null;
+    if (d.rescue !== null) this._set(h.rescue, `${icon('flag', { size: 14 })} 救援约 <b>${d.rescue.toFixed(1)}</b> h`);
+    const sig = d.signal < 0 ? `${icon('plane', { size: 14 })}飞行模式` : d.signal === 0 ? '无信号' : `${icon('signal', { size: 14 })}${d.signal > 1 ? '信号良好' : '弱信号'}`;
+    this._set(h.phone, `${icon('phone', { size: 14 })}<b>${d.phone}</b>% ${sig}`);
+    h.phone.classList.toggle('air', d.signal < 0);
+    h.phone.classList.toggle('low', d.phone < 15);
+
+    const set = (k, pct, num, color, crit) => {
+      const v = this.hv[k];
+      v.bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      v.bar.style.setProperty('--c', color);
+      if (v.num.textContent !== String(num)) v.num.textContent = num;
+      v.root.classList.toggle('crit', !!crit);
+    };
+    const coreColor = d.core >= 36.3 ? 'var(--green)' : d.core >= 35 ? 'var(--yellow)' : 'var(--red)';
+    set('core', ((d.core - 30) / 7) * 100, d.showCore ? d.core.toFixed(1) : d.coreFeel, coreColor, d.core < 35);
+    this.hv.core.num.classList.toggle('txt', !d.showCore);
+    const lvl = (v) => (v > 50 ? 'var(--green)' : v > 25 ? 'var(--yellow)' : 'var(--red)');
+    set('stamina', d.stamina, Math.round(d.stamina), lvl(d.stamina), d.stamina < 12);
+    set('food', d.food, Math.round(d.food), lvl(d.food), d.food < 10);
+    set('water', d.water, Math.round(d.water), lvl(d.water), d.water < 10);
+    set('stress', d.stress, Math.round(d.stress), d.stress < 50 ? 'var(--blue)' : d.stress < 75 ? 'var(--yellow)' : 'var(--red)', d.stress > 80);
+    set('health', d.health, Math.round(d.health), lvl(d.health), d.health < 25);
+    set('wet', d.wet, Math.round(d.wet), d.wet < 30 ? 'var(--blue)' : d.wet < 60 ? 'var(--yellow)' : 'var(--red)', d.wet > 70);
+
+    const s = d.status;
+    const chips = [];
+    if (s.collapsed) chips.push(['走不动了', '']);
+    if (s.shiver) chips.push(['发抖', 'w']);
+    if (s.sweat) chips.push(['出汗', 'w']);
+    if (s.wet) chips.push(['衣服湿了', 'w']);
+    if (s.sprain) chips.push(['崴脚', '']);
+    if (s.fracture) chips.push(['骨折', '']);
+    if (s.frost) chips.push(['冻伤', '']);
+    if (s.snowblind) chips.push(['雪盲', '']);
+    if (s.alt) chips.push(['高反', 'w']);
+    if (s.drunk) chips.push(['酒精', 'w']);
+    if (s.warmer) chips.push(['暖宝宝', 'g']);
+    chips.push([d.insul ? '穿着保暖层' : d.hasInsul ? '未穿保暖层' : '无保暖层', d.insul ? 'g' : 'w']);
+    this._set(this.hChips, chips.map(([t, c]) => `<span class="${c}">${t}</span>`).join(''));
+
+    this.hComp.hidden = d.companions.length === 0;
+    this._set(this.hComp, d.companions.map((c) => `<div class="vital ${c.cond < 20 ? 'crit' : ''}">${icon('walk', { size: 16 })}<span class="lb">${esc(c.name)}</span><div class="bar"><i style="width:${c.cond}%;--c:${c.cond > 50 ? 'var(--green)' : c.cond > 25 ? 'var(--yellow)' : 'var(--red)'}"></i></div><span class="num">${Math.round(c.cond)}</span></div>`).join(''));
+
+    this.hAuto.classList.toggle('on', d.auto);
+    this.hCrouch.classList.toggle('held', d.crouch);
+    this.hActions.hidden = d.inCamp;
+    this.el.joy.hidden = !this.isMobile || d.inCamp;
+    if (this.busyClock) this.busyClock.textContent = d.clock;
+  }
+
+  gustWarn() {
+    if (!this.hGust) return;
+    this.hGust.classList.remove('on');
+    void this.hGust.offsetWidth;
+    this.hGust.classList.add('on');
+    this.hCrouch.classList.add('alert');
+    clearTimeout(this._gustT);
+    this._gustT = setTimeout(() => this.hCrouch.classList.remove('alert'), 1300);
+  }
+
+  setEffects(e) {
+    const f = this.el.fx;
+    f.cold.style.opacity = (e.cold * 0.7).toFixed(2);
+    f.hurt.style.opacity = (e.hurt * 0.8).toFixed(2);
+    f.stress.style.opacity = (e.stress * 0.8).toFixed(2);
+    f.white.style.opacity = e.white.toFixed(2);
+    f.dark.style.opacity = e.dark.toFixed(2);
+    f.frost.style.opacity = Math.min(1, (e.frost || 0) * 0.55 + e.cold * 0.6).toFixed(2);
+    f.wind.style.opacity = ((e.wind || 0) * 0.9).toFixed(2);
+    const blur = Math.min(3, e.blur * 3);
+    const key = blur.toFixed(1);
+    if (key !== this._blurKey) {
+      this._blurKey = key;
+      this.el.canvas.style.filter = blur > 0.1 ? `blur(${key}px)` : '';
+    }
+  }
+
+  flash() {
+    const f = this.el.fx.flash;
+    f.style.opacity = '1';
+    setTimeout(() => { f.style.opacity = '0'; }, 120);
+  }
+
+  toast(text, kind = 'info', ms = 3800) {
+    const t = document.createElement('div');
+    t.className = `toast ${kind}`;
+    t.textContent = text;
+    this.el.toasts.appendChild(t);
+    while (this.el.toasts.children.length > 4) this.el.toasts.firstElementChild.remove();
+    if (kind === 'danger') this.audio?.alert();
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 320); }, ms);
+  }
+
+  card(name, sub, desc) {
+    const c = this.el.card;
+    c.innerHTML = `<div class="cn">${esc(name)}</div><div class="cs">${esc(sub)}</div><div class="cd">${esc(desc)}</div>`;
+    c.classList.remove('on');
+    void c.offsetWidth;
+    c.classList.add('on');
+  }
+
+  setBusy(text, showClock = false) {
+    const b = this.el.busy;
+    if (!text) { b.classList.remove('on'); this.busyClock = null; return; }
+    b.innerHTML = `<div class="bx"><div class="bt">${esc(text)}</div>${showClock ? '<div class="bc"></div>' : ''}</div>`;
+    this.busyClock = showClock ? b.querySelector('.bc') : null;
+    if (this.busyClock && this._lastHud) this.busyClock.textContent = this._lastHud.clock;
+    b.classList.add('on');
+  }
+
+  // ———————————————————— 对话 ————————————————————
+  dialog(opts) {
+    const run = () => new Promise((resolve) => {
+      this.dialogOpen = true;
+      this._syncInput();
+      const d = this.el.dialog;
+      let choices = opts.choices.map((c, i) => ({ ...c, i }));
+      if (opts.shuffle) choices = choices.sort(() => Math.random() - 0.5);
+      const paras = (opts.text || []).filter(Boolean).map((p) => `<p class="${p.startsWith('【护士】') ? 'nurse' : ''}">${esc(p)}</p>`).join('');
+      d.innerHTML = `<div class="dlg ${opts.shuffle ? 'shaky' : ''}">
+        <div class="dlg-head"><h3>${esc(opts.who || '')}</h3>${opts.sub ? `<div class="sub">${esc(opts.sub)}</div>` : ''}</div>
+        <div class="dlg-body">${paras}</div>
+        <div class="dlg-choices">${choices.map((c, k) => `<button class="choice" data-id="${esc(c.id)}" ${c.disabled ? 'disabled' : ''}>
+          <b>${this.isMobile ? '' : `<span class="mono" style="color:var(--muted);margin-right:6px">${k + 1}</span>`}${esc(c.label)}</b>${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</button>`).join('')}</div></div>`;
+      d.classList.add('open');
+      const finish = (id) => {
+        d.classList.remove('open');
+        d.innerHTML = '';
+        window.removeEventListener('keydown', onKey);
+        this.dialogOpen = false;
+        this._syncInput();
+        resolve(id);
+      };
+      const onKey = (e) => {
+        const n = parseInt(e.key, 10);
+        if (n >= 1 && n <= choices.length && !choices[n - 1].disabled) { e.preventDefault(); finish(choices[n - 1].id); }
+      };
+      window.addEventListener('keydown', onKey);
+      const openedAt = performance.now();
+      d.querySelectorAll('.choice').forEach((b) => b.addEventListener('click', () => {
+        // 防止弹窗出现时手指/鼠标正好落在选项上造成误触
+        if (performance.now() - openedAt < 450) return;
+        this.audio?.click();
+        finish(b.dataset.id);
+      }));
+    });
+    const p = this.dialogQueue.then(run);
+    this.dialogQueue = p.catch(() => {});
+    return p;
+  }
+
+  // ———————————————————— 抽屉 ————————————————————
+  _sheet(name, title, body, wide = false) {
+    this.sheetOpen = name;
+    this._syncInput();
+    this.el.sheet.innerHTML = `<div class="drawer ${wide ? 'wide' : ''}"><div class="drawer-head"><h3>${title}</h3><button class="sbtn alt" data-act="close">关闭</button></div>
+      <div class="drawer-body">${body}</div></div>`;
+    this.el.sheet.classList.add('open');
+    return this.el.sheet.firstElementChild;
+  }
+
+  closeSheet() {
+    this.el.sheet.classList.remove('open');
+    this.el.sheet.innerHTML = '';
+    this.sheetOpen = null;
+    this._syncInput();
+  }
+
+  toggleSheet(name) {
+    if (this.sheetOpen === name) return this.closeSheet();
+    if (name === 'pack') this.openPack();
+    if (name === 'map') this.openMap();
+    if (name === 'menu') this.openMenu();
+  }
+
+  openPack(keepScroll = false) {
+    const g = this.game, st = g.st;
+    if (!st) return;
+    const prevScroll = keepScroll ? this.el.sheet.querySelector('.drawer-body')?.scrollTop : 0;
+    const b = st.body;
+    const worn = wornItems(st);
+    const w = packWeight(st), cap = packCapacity(st);
+    const foods = ['selfheat', 'noodle', 'biscuit', 'jerky', 'chocolate', 'bar', 'gel', 'glucose', 'baijiu'].filter((id) => has(st, id));
+    const canCook = has(st, 'stove') && has(st, 'pot');
+    const gasN = st.gas.normal + st.gas.alpine;
+    const stat = (k, v, cls = '') => `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+    const injuries = [b.sprain > 0 && '崴脚', b.fracture >= 1 && '骨折', b.fracture > 0 && b.fracture < 1 && '骨折（已固定）', b.frostbite > 25 && `冻伤 ${Math.round(b.frostbite)}`, b.snowblind > 30 && '雪盲', b.altSick > 30 && '高反'].filter(Boolean);
+    const sig = g.signal();
+    const devRow = (name, sub, btns) => `<div class="row"><div class="l"><b>${name}</b><small>${sub}</small></div><div class="r">${btns}</div></div>`;
+    const body = `
+      <div class="sec"><h4>身体</h4>
+        <div class="grid2">
+          ${stat('核心体温', g.role.mods.showCore ? b.core.toFixed(1) + '℃' : esc(this._lastHud?.coreFeel ?? ''), b.core < 35 ? 'danger-text' : '')}
+          ${stat('健康', Math.round(b.health), b.health < 30 ? 'danger-text' : '')}
+          ${stat('衣物潮湿', Math.round(b.wet) + '%', b.wet > 50 ? 'warn-text' : '')}
+          ${stat('压力', Math.round(b.stress), b.stress > 75 ? 'danger-text' : '')}
+        </div>
+        <div style="margin-top:8px;font-size:13px;color:var(--muted)">${injuries.length ? '伤病：' + injuries.join('、') : '没有明显伤病。'}</div>
+        ${devRow('急救包', `剩 ${st.inv.firstaid || 0} 个${g.role.mods.firstAid >= 1 ? ' · 护士处理效果翻倍' : ''}`, `<button class="sbtn" data-act="aid" ${has(st, 'firstaid') ? '' : 'disabled'}>处理伤口</button>`)}
+        ${devRow('暖宝宝', st.warmerLeft > 0 ? `正在发热，还剩约 ${Math.round(st.warmerLeft / 60)} 小时 · 剩 ${st.warmers} 片` : `剩 ${st.warmers} 片`, `<button class="sbtn" data-act="warmer" ${st.warmers > 0 ? '' : 'disabled'}>贴一片</button>`)}
+      </div>
+      <div class="sec"><h4>穿着</h4>
+        ${devRow('保暖层', worn.insul ? `${ITEMS[worn.insul].name} · ${st.wearInsul ? '穿着' : '收在包里'}` : '没有保暖层', worn.insul ? `<button class="sbtn ${st.wearInsul ? 'on' : ''}" data-act="insul">${st.wearInsul ? '脱下' : '穿上'}</button>` : '')}
+        <div style="font-size:12px;color:var(--muted);margin:4px 0 6px">停下来就穿，走起来就脱。走路时穿着会出汗，汗湿的衣服不保暖。</div>
+        ${SLOTS.filter((s) => s !== 'insul').map((s) => `<div class="row"><div class="l"><small>${SLOT_NAMES[s]}</small><b>${worn[s] ? esc(ITEMS[worn[s]].name) : '<span style="color:#ff8b8d">无</span>'}</b></div></div>`).join('')}
+      </div>
+      <div class="sec"><h4>饮水 <em>${gasN > 0 ? `气罐 ${st.gas.alpine ? '高山' + st.gas.alpine : ''}${st.gas.alpine && st.gas.normal ? ' / ' : ''}${st.gas.normal ? '普通' + st.gas.normal : ''} 次` : '无气罐'}</em></h4>
+        ${has(st, 'thermos') ? devRow('保温杯', `${st.thermos.l.toFixed(2)} L · ${st.thermos.l > 0.04 ? Math.round(st.thermos.temp) + '℃' : '空'}`, `<button class="sbtn" data-act="thermos" ${st.thermos.l > 0.04 ? '' : 'disabled'}>喝一口</button>`) : ''}
+        ${devRow('水瓶', `液态 ${st.water.liquid.toFixed(2)} L · 结冰 ${st.water.frozen.toFixed(2)} L`, `<button class="sbtn" data-act="water" ${st.water.liquid > 0.04 ? '' : 'disabled'}>喝一口</button>`)}
+        ${devRow('烧雪化水', canCook ? (gasN > 0 ? '约15分钟，耗一次气。灌进保温杯或直接喝。' : '没有气罐了') : '需要炉头和锅', `<button class="sbtn" data-act="cook" ${canCook && gasN > 0 ? '' : 'disabled'}>烧水</button>`)}
+        ${devRow('吃雪', '解渴很少，消耗体温', '<button class="sbtn alt" data-act="snow">吃雪</button>')}
+      </div>
+      <div class="sec"><h4>食物 <em>饱食 ${Math.round(b.food)}</em></h4>
+        ${foods.length ? foods.map((id) => devRow(`${esc(ITEMS[id].name)} ×${st.inv[id]}`, esc(ITEMS[id].needsHot ? (st.thermos.l >= 0.3 && st.thermos.temp > 50 ? '用保温杯热水泡' : '没有热水，只能干嚼') : ITEMS[id].alcohol ? '……真的要喝吗？' : `饱食 +${ITEMS[id].food}`), `<button class="sbtn" data-act="eat" data-id="${id}">吃</button>`)).join('') : '<div style="color:#ff8b8d">没有食物了。</div>'}
+      </div>
+      <div class="sec"><h4>设备</h4>
+        ${devRow('手机', `电量 ${Math.round(st.bat.phone)}% · ${st.airplane ? '飞行模式' : sig ? '有信号' : '无信号'}`, `<button class="sbtn ${st.airplane ? 'on' : 'alt'}" data-act="air">${st.airplane ? '关飞行' : '开飞行'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="phone">充电</button>' : ''}`)}
+        ${has(st, 'gps') ? devRow('手持GPS', `电量 ${Math.round(st.bat.gps)}% · ${st.gpsOn ? '开启' : '关闭'}`, `<button class="sbtn ${st.gpsOn ? 'on' : 'alt'}" data-act="gps">${st.gpsOn ? '关闭' : '打开'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="gps">充电</button>' : ''}`) : ''}
+        ${has(st, 'headlamp') ? devRow('头灯', `电量 ${Math.round(st.bat.headlamp)}% · ${st.lampOn ? '开' : '关'}`, `<button class="sbtn ${st.lampOn ? 'on' : 'alt'}" data-act="lamp">${st.lampOn ? '关灯' : '开灯'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="headlamp">充电</button>' : ''}`) : ''}
+        ${has(st, 'satcomm') ? devRow('北斗卫星通讯器', `电量 ${Math.round(st.bat.satcomm)}% · 无信号也能求救`, '') : ''}
+        ${devRow('充电宝', st.powerbank > 0 ? `还能充 ${st.powerbank} 次` : '没有了', '')}
+        ${devRow('贴身保暖', '把手机、充电宝、气罐揣在怀里，减缓低温掉电和气罐失效', `<button class="sbtn ${st.keepWarm ? 'on' : 'alt'}" data-act="warm">${st.keepWarm ? '已贴身' : '揣进怀里'}</button>`)}
+      </div>
+      ${st.companions.length ? `<div class="sec"><h4>同伴</h4>${st.companions.map((id) => devRow(esc(npcById(id).name), `状况 ${Math.round(st.npcs[id].cond)}`, `<button class="sbtn" data-act="care" data-id="${id}" data-w="hot">热水</button><button class="sbtn" data-act="care" data-id="${id}" data-w="food">吃的</button><button class="sbtn alt" data-act="care" data-id="${id}" data-w="warmer">暖宝宝</button>`)).join('')}</div>` : ''}
+      <div class="sec"><h4>背包 <em style="color:${w > cap ? 'var(--red)' : 'inherit'}">${w.toFixed(1)}/${cap} kg</em></h4>
+        <div style="font-size:13px;color:var(--ink2)">${Object.keys(st.inv).filter((id) => ['tent', 'bag', 'pad', 'tool', 'pack', 'med'].includes(ITEMS[id]?.kind)).map((id) => esc(ITEMS[id].name) + (st.inv[id] > 1 ? '×' + st.inv[id] : '')).join('、') || '—'}</div>
+      </div>`;
+    const el = this._sheet('pack', '背包', body);
+    if (keepScroll) el.querySelector('.drawer-body').scrollTop = prevScroll;
+    const re = () => { this.openPack(true); };
+    this._bind(el, {
+      close: () => this.closeSheet(),
+      aid: () => { g.useFirstAid(); re(); },
+      warmer: () => { g.useWarmer(); re(); },
+      insul: () => { st.wearInsul = !st.wearInsul; this.toast(st.wearInsul ? '你穿上了保暖层。' : '你脱下了保暖层，塞回包里。', 'info'); re(); },
+      thermos: () => { g.drinkThermos(); re(); },
+      water: () => { g.drinkWater(); re(); },
+      snow: () => { g.eatSnow(); re(); },
+      cook: async () => { this.closeSheet(); await g.cook(); },
+      eat: (d) => { g.eat(d.id); re(); },
+      air: () => { st.airplane = !st.airplane; re(); },
+      gps: () => { st.gpsOn = !st.gpsOn && st.bat.gps > 0; re(); },
+      lamp: () => { st.lampOn = !st.lampOn && st.bat.headlamp > 0; re(); },
+      charge: (d) => { g.charge(d.id); re(); },
+      warm: () => { st.keepWarm = !st.keepWarm; re(); },
+      care: (d) => { g.careNpc(d.id, d.w); re(); },
+    });
+  }
+
+  openMap() {
+    const g = this.game, st = g.st;
+    if (!st) return;
+    const wps = WAYPOINTS.map((w) => ({ ...w, visited: !!st.visited[w.id] }));
+    const br = BRANCHES.hetaoping;
+    const from = WAYPOINTS.find((w) => w.id === br.fromWaypoint);
+    const onBranch = st.path !== 'main';
+    const curKm = onBranch ? from.km : st.s * 0.04;
+    const svg = profileSVG({
+      waypoints: wps,
+      branch: { name: br.name, fromKm: from.km, lengthKm: br.lengthKm, startAlt: from.alt, endAlt: br.endAlt, endName: br.endName },
+      currentKm: curKm, maxKm: st.maxS * 0.04, onBranch, branchKm: onBranch ? st.s * 0.04 : 0, dir: st.dir,
+    });
+    const notes = (w) => [w.camp && '营地', w.water && '水源', w.signal && (w.signal > 1 ? '信号好' : '弱信号'), w.bailout && '下撤点', w.end && '终点'].filter(Boolean).join(' · ');
+    const body = `
+      <div class="profile">${svg}</div>
+      <div class="sec"><h4>途经点 <em>海拔为近似值</em></h4><div class="wplist">
+        ${wps.map((w) => `<div class="row ${w.visited ? 'done' : ''}"><div class="l"><b>${esc(w.name)}</b><small>${esc(notes(w))}</small></div>
+          <div class="r mono" style="font-size:18px;color:var(--muted)">${w.km}km · ${w.alt}m</div></div>`).join('')}
+        <div class="row"><div class="l"><b style="color:var(--green)">${esc(br.name)}</b><small>${esc(br.desc)}</small></div><div class="r mono" style="font-size:18px;color:var(--muted)">${br.lengthKm}km</div></div>
+      </div></div>
+      <div class="sec"><h4>行程日志</h4><div class="loglist">
+        ${st.log.slice().reverse().map((l) => `<div><span class="t">${fmtDateTime(l.t)}</span>${esc(l.text)}</div>`).join('') || '<div>还没有记录。</div>'}
+      </div></div>`;
+    const el = this._sheet('map', '路线 · 高程', body, true);
+    this._bind(el, { close: () => this.closeSheet() });
+  }
+
+  openMenu() {
+    const muted = this.audio?.muted;
+    const world = this.game.world;
+    const qBtn = (k, n) => `<button class="sbtn ${world.qname === k ? 'on' : 'alt'}" data-act="q" data-id="${k}">${n}</button>`;
+    const vol = this.music ? Math.round(this.music.volume * 100) : 0;
+    const el = this._sheet('menu', '菜单', `
+      <div class="sec" style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn primary" data-act="close">继续</button>
+      </div>
+      <div class="sec"><h4>画质</h4>
+        <div class="row"><div class="l"><b>渲染质量</b><small>精美：实时阴影、泛光、调色；流畅：适合老手机</small></div>
+          <div class="r">${qBtn('low', '流畅')}${qBtn('mid', '均衡')}${qBtn('high', '精美')}</div></div>
+      </div>
+      <div class="sec"><h4>声音</h4>
+        <div class="row"><div class="l"><b>全部声音</b><small>风声、脚步、音乐</small></div><div class="r"><button class="sbtn ${muted ? 'alt' : 'on'}" data-act="sound">${muted ? '已关闭' : '开启'}</button></div></div>
+        <div class="row"><div class="l"><b>背景音乐</b><small>随处境变化的配乐 · ${vol}%</small></div>
+          <div class="r"><button class="sbtn alt" data-act="vol" data-d="-0.15">−</button><button class="sbtn alt" data-act="vol" data-d="0.15">＋</button></div></div>
+      </div>
+      <div class="sec" style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn ghost" data-act="archive">事故档案</button>
+        <button class="btn ghost" data-act="about">操作说明</button>
+        <button class="btn danger" data-act="quit">放弃本局，回到标题</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">游戏会在抵达途经点、睡觉后自动存档。</div>`);
+    this._bind(el, {
+      close: () => this.closeSheet(),
+      q: (d) => { world.applyQuality(d.id); this.openMenu(); },
+      sound: () => { this.audio?.setMuted(!this.audio.muted); this.openMenu(); },
+      vol: (d) => { if (this.music) this.music.setVolume(Math.max(0, Math.min(1, this.music.volume + Number(d.d)))); this.openMenu(); },
+      archive: () => { this.closeSheet(); this.showArchive(() => this.closeScreen()); },
+      about: () => { this.closeSheet(); this.showAbout(() => this.closeScreen()); },
+      quit: async () => {
+        this.closeSheet();
+        const c = await this.dialog({ who: '放弃本局？', text: ['存档会被删除。'], choices: [{ id: 'y', label: '放弃' }, { id: 'n', label: '再想想' }] });
+        if (c === 'y') this.app.quit();
+      },
+    });
+  }
+
+  // ———————————————————— 营地 ————————————————————
+  showCampPlacer(info, h) {
+    this.hideCampPlacer();
+    const box = document.createElement('div');
+    box.className = 'campbox panel';
+    box.id = 'campPlacer';
+    document.body.appendChild(box);
+    this._placerH = h;
+    this.updateCampPlacer(info);
+    this._bind(box, {
+      l: () => h.rotate(-Math.PI / 8), r: () => h.rotate(Math.PI / 8), best: () => h.best(), ok: () => h.confirm(), no: () => h.cancel(),
+    });
+    this.hActions && (this.hActions.hidden = true);
+  }
+
+  updateCampPlacer(info) {
+    const box = $('#campPlacer');
+    if (!box) return;
+    box.innerHTML = `
+      <h4>选择扎营朝向 <span class="mono" style="font-size:18px;color:var(--blue)">${esc(info.windDir)} ${info.windMs}m/s</span></h4>
+      <div class="info">
+        <span>风暴露</span><span class="grade-${info.exposure.includes('低') ? 'good' : info.exposure.includes('高') ? 'bad' : 'mid'}">${esc(info.exposure)}</span>
+        <span>帐篷朝向</span><span class="grade-${info.grade}">${esc(info.orient)}</span>
+        ${info.risk ? `<span>抗风</span><span>${esc(info.risk)}</span>` : ''}
+      </div>
+      <div class="tip">${esc(info.tip)} 白色箭头是风吹去的方向。</div>
+      <div class="btns">
+        <button class="btn ghost" data-act="l">⟲</button><button class="btn ghost" data-act="r">⟳</button>
+        ${info.canBest ? '<button class="btn ghost" data-act="best">老驴经验：对准</button>' : ''}
+        <button class="btn primary" data-act="ok">在这里扎营</button><button class="btn ghost" data-act="no">取消</button>
+      </div>`;
+  }
+
+  hideCampPlacer() {
+    $('#campPlacer')?.remove();
+  }
+
+  showCampMenu(info) {
+    this.hideCampMenu();
+    const box = document.createElement('div');
+    box.className = 'campbox panel';
+    box.id = 'campMenu';
+    const g = this.game;
+    box.innerHTML = `
+      <h4>${info.bivy ? '露宿' : '营地'} · ${esc(g.placeName())}
+        ${info.tentHealth !== null ? `<span class="mono" style="font-size:18px;color:${info.tentHealth < 40 ? 'var(--red)' : 'var(--muted)'}">帐篷 ${info.tentHealth}%</span>` : ''}</h4>
+      ${info.rescue !== null ? `<div class="tip" style="border-color:var(--orange)">救援队预计约 ${info.rescue} 小时后到达。保持体温，原地等待。</div>` : ''}
+      <div class="btns">
+        <button class="btn primary" data-act="sleep">${info.night ? '睡到天亮' : '小睡两小时'}</button>
+        <button class="btn" data-act="rest">休息1小时</button>
+        <button class="btn" data-act="cook" ${info.canCook ? '' : 'disabled'}>烧水</button>
+        <button class="btn" data-act="pack">背包</button>
+        ${info.rescue !== null ? '<button class="btn" data-act="wait">等待救援</button>' : info.canSos ? '<button class="btn danger" data-act="sos">求救</button>' : ''}
+        <button class="btn ghost" data-act="go">${info.bivy ? '起身出发' : '收帐篷出发'}</button>
+      </div>`;
+    document.body.appendChild(box);
+    this._bind(box, {
+      sleep: () => g.sleep(),
+      rest: async () => { this.hideCampMenu(); await g.restFor(60); if (g.st.camp) this.showCampMenu(g.campMenuInfo()); },
+      cook: async () => { this.hideCampMenu(); await g.cook(); if (g.st.camp) this.showCampMenu(g.campMenuInfo()); },
+      pack: () => this.openPack(),
+      sos: async () => { await g.sos({}); if (g.st.camp) this.showCampMenu(g.campMenuInfo()); },
+      wait: async () => { this.hideCampMenu(); await g.waitForRescue(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+      go: () => g.packCamp(),
+    });
+  }
+
+  hideCampMenu() { $('#campMenu')?.remove(); }
+
+  // ———————————————————— 结局 ————————————————————
+  showEnding({ type, cause, role, stats, fates }) {
+    const E = type === 'dead' ? { ...ENDINGS.dead[cause] ?? ENDINGS.dead.hypothermia, grade: '遇难', tone: 'bad' } : ENDINGS[type];
+    this.endingTone = E.tone;
+    const lesson = type === 'dead' ? LESSONS[cause] ?? LESSONS.hypothermia : type === 'sausage' ? '最安全的鳌太线，是没有走过的鳌太线。' : LESSONS.hypothermia;
+    const related = type === 'dead' && cause === 'fall' ? [ARCHIVE[7], ARCHIVE[4]] : type === 'rescued' ? [ARCHIVE[6], ARCHIVE[4]] : [ARCHIVE[1], ARCHIVE[7]];
+    const S = (k, v) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+    const okFate = (f) => ['safe', 'rescued', 'survived', 'followed', 'together', 'helped', 'warned', 'waited'].includes(f);
+    const page = this._page(`
+      <div class="ending">
+        <div class="end-head"><h1>${esc(E.title)}</h1><div class="stamp ${E.tone}">${esc(E.grade)}</div></div>
+        <div style="color:var(--muted);margin-bottom:10px">${esc(role.name)} · ${esc(stats.time)}</div>
+        <div class="end-story">${E.lines.map((l, i) => `<p style="animation-delay:${i * 0.25}s">${esc(l)}</p>`).join('')}</div>
+        ${type !== 'sausage' ? `<div class="end-grid">
+          ${S('山上天数', stats.days)}${S('实际游玩', stats.realMin + '分钟')}${S('最远到达', stats.progress + 'km')}${S('行走距离', stats.dist + 'km')}
+          ${S('最高海拔', stats.maxAlt + 'm')}${S('最低体温', stats.minCore + '℃')}${S('最冷体感', stats.coldest + '℃')}${S('露营夜数', stats.nights)}
+        </div>
+        ${stats.fines || stats.rescueCost ? `<div class="lesson" style="border-color:var(--line2);margin-bottom:10px">
+          ${stats.fines ? `违规穿越罚款：<b class="mono" style="font-size:20px">¥${stats.fines.toLocaleString()}</b>。` : ''}
+          ${stats.rescueCost ? `商业救援费用可达<b class="mono" style="font-size:20px">¥${stats.rescueCost.toLocaleString()}</b>量级。` : ''}
+          ${stats.insurance ? '你买的户外险：违规进入禁止区域，不予理赔。' : ''}</div>` : ''}` : ''}
+        ${fates.length ? `<div class="end-sec"><h3><span class="tag">路遇</span>他们后来怎么样了</h3>
+          ${fates.map((f) => `<div class="fate ${okFate(f.fate) ? 'ok' : f.fate === 'died' || f.fate === 'danger' ? 'died' : ''}"><b>${esc(f.name)}</b> <small style="color:var(--muted)">${esc(f.age || '')}</small><p>${esc(f.text)}</p></div>`).join('')}
+          <div style="font-size:12px;color:var(--muted)">人物为化名或虚构，情节改编自公开报道与"神秘园"系列视频讲述的事件。</div></div>` : ''}
+        <div class="end-sec"><h3><span class="tag">教训</span>你需要知道的</h3><div class="lesson">${esc(lesson)}</div></div>
+        <div class="end-sec"><h3><span class="tag">真实</span>这些事真的发生过</h3>
+          ${related.map((a) => `<div class="case"><div class="when">${esc(a.when)}</div><div><h4>${esc(a.title)}</h4><p>${esc(a.body)}</p></div></div>`).join('')}</div>
+        <div class="slogan">${SAUSAGE_SVG}${SLOGAN}</div>
+        <div class="end-actions">
+          <button class="btn primary" data-act="again">再来一次</button>
+          <button class="btn ghost" data-act="archive">全部事故档案</button>
+          <button class="btn ghost" data-act="title">回到标题</button>
+        </div>
+      </div>`, 'dim', 'ending');
+    this._bind(page, {
+      again: () => this.showRoles(),
+      archive: () => this.showArchive(() => this.showEnding({ type, cause, role, stats, fates })),
+      title: () => this.app.toTitle(),
+    });
+  }
+}

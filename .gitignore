@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.fontsrc/
+.claude/
+.wrangler/
+.DS_Store
+*.log

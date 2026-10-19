@@ -1,0 +1,15 @@
+Font licenses
+=============
+
+The fonts in this directory are subsets of the following typefaces, both
+licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org):
+
+- ZCOOL QingKe HuangYou (zcool.*)
+  https://github.com/google/fonts/tree/main/ofl/zcoolqingkehuangyou
+
+- VT323 (vt323.*)
+  https://github.com/google/fonts/tree/main/ofl/vt323
+
+The subset files retain the original copyright and license notices in their
+embedded name tables. The full license text and copyright holders are
+available at the links above.

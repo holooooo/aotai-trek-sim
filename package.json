@@ -1,0 +1,20 @@
+{
+  "name": "aotai-trek-sim",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "鳌太线徒步模拟器 —— 门口没有烤肠的山，不要爬。体素风格 three.js 生存模拟。",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "fonts": "python3 scripts/subset-fonts.py",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name aotai-trek-sim --branch main --commit-dirty=true"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}
