@@ -9,6 +9,7 @@
     "test": "node --test tests/*.test.js",
     "build": "vite build",
     "preview": "vite preview --host",
+    "stats": "node scripts/analytics-report.mjs",
     "fonts": "python3 scripts/subset-fonts.py",
     "deploy": "npm run build && wrangler pages deploy dist --project-name aotai-trek-sim --branch main --commit-dirty=true"
   },

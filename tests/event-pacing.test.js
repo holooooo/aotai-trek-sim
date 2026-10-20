@@ -39,3 +39,9 @@ test('fresh idle Game updates do not consume time or resources before the first 
  for(let i=0;i<200;i++)game.update(.1);assert.equal(steps,0);
  game.updateMovement=()=>{game.moving=true;game.st.stats.walked+=1;};game.update(.1);assert.equal(steps,1);
 });
+test('a pending choice resumes in an idle fresh frame without simulating resources', () => {
+ const game=Object.create(Game.prototype);game.st=createState('student');game.st.story.pendingEvent='headlamp_contact';game.over=false;game.ui={modalOpen:false};
+ let triggers=0,steps=0;game.simulate=()=>steps++;game.checkTriggers=()=>triggers++;game.updateMovement=()=>{};game.updateGust=()=>{};
+ game.updateNpcs=()=>{};game.updateVisuals=()=>{};game.refreshHud=()=>{};game.hudTimer=1;game.saveTimer=0;game.restTimer=0;
+ game.update(.1);assert.equal(triggers,1);assert.equal(steps,0);assert.equal(game.st.story.pacing.started,false);
+});

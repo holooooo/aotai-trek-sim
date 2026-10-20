@@ -1,0 +1,10 @@
+name = "aotai-trek-sim"
+account_id = "450b22761d9a7a6918352fd4800f53a9"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aotai-analytics"
+database_id = "77112725-d829-4482-b1c9-3c0471f234d6"
+migrations_dir = "migrations"

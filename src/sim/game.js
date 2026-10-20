@@ -1,3 +1,4 @@
+import { makeQuestion } from '../analytics/polls.js';
 // 游戏主控：移动、模拟循环、危险判定、扎营、救援、路遇驴友、结局。
 import * as THREE from 'three';
 import { mainPath, branches, columnInfo, WANXIAN } from '../world/terrain.js';
@@ -236,7 +237,9 @@ export class Game {
       this.restTimer = this.moving ? 0 : this.restTimer + dt;
       const pacing = advanceEventPacing(this.st, dt, this.moving);
       // 未移动的新局只展示操作界面，不偷跑时间、扣资源或自动弹事件。
-      if (pacing.started) {
+      if (this.st.story.pendingEvent) {
+        this.checkTriggers(dt);
+      } else if (pacing.started) {
         this.simulate(dt * TIME_SCALE);
         this.updateGust(dt);
         this.checkTriggers(dt);
@@ -929,11 +932,22 @@ export class Game {
   async runEvent(fn, { propagate = false, focus = null, paced = false } = {}) {
     if (this.eventRunning) return;
     const st = this.st, serial = this._dialogSerial || 0;
+    const previousSource = this._pollSource;
+    this._pollSource = focus?.event ? `event:${focus.event}` : focus?.npc ? `npc:${focus.npc}` : focus?.landmark ? `scene:${focus.landmark}` : null;
+    const source = this._pollSource, encounter = `${source}:${st.time.toFixed(3)}`;
+    if (source) {
+      this.analytics?.track('event_started', st, { eventId: source, uniqueKey: `start:${encounter}` });
+      if (this.analytics?.enabled) this.save();
+    }
     this.eventRunning = true;
     const focused = focus ? this.beginEventFocus?.(focus) : false;
-    try { await fn(); }
+    try {
+      await fn();
+      if (source && this.st === st) this.analytics?.track('event_completed', st, { eventId: source, uniqueKey: `complete:${encounter}` });
+    }
     catch (e) { console.error(e); if (propagate) throw e; }
     finally {
+      this._pollSource = previousSource;
       if (this.st === st) {
         if (!paced && !this.over && (this._dialogSerial || 0) !== serial) recordDialog(st);
         if (focused) this.eventCamera?.end();
@@ -1613,7 +1627,7 @@ export class Game {
       if (reason === 'cold') { coldWoke = true; const goOn = await this.coldWake(); if (!goOn) { left = 0; break; } }
       if (reason === 'snow') {
         snowDone = true;
-        const c = await this.dialog({ who: '深夜', text: ['帐篷顶被积雪压得越来越低，几乎贴到了你的脸。'], choices: [{ id: 'clear', label: '爬出去清雪', sub: '会冷，但帐篷不会被压塌' }, { id: 'ignore', label: '不管了，继续睡' }] });
+        const c = await this.dialog({ pollSource: 'scene:camp_snow', who: '深夜', text: ['帐篷顶被积雪压得越来越低，几乎贴到了你的脸。'], choices: [{ id: 'clear', label: '爬出去清雪', sub: '穿好衣服，去帐篷外面看看' }, { id: 'ignore', label: '不管了，继续睡' }] });
         if (c === 'clear') { st.body.core -= 0.3; st.camp.health = Math.min(100, st.camp.health + 10); await this.skip(15, 'idle'); }
         else st.camp.health -= 35;
       }
@@ -1633,9 +1647,9 @@ export class Game {
     const st = this.st;
     this.addStress(20);
     const c = await this.dialog({
-      who: '帐篷塌了', text: ['一阵狂风，帐杆"啪"地一声断了。湿冷的帐布糊在你脸上，风从每一个缝隙里灌进来。'],
+      pollSource: 'scene:tent_collapse', who: '帐篷塌了', text: ['一阵狂风，帐杆"啪"地一声断了。湿冷的帐布糊在你脸上，风从每一个缝隙里灌进来。'],
       choices: [
-        { id: 'fix', label: '钻出去，在风雪里重新加固', sub: '冻手冻脚，但能挽回一半' },
+        { id: 'fix', label: '钻出去，在风雪里重新加固', sub: '摸黑找回帐杆和绳子，试着重新撑起来' },
         { id: 'hold', label: '裹着塌掉的帐篷硬撑到天亮' },
       ],
     });
@@ -1664,7 +1678,7 @@ export class Game {
     choices.push({ id: 'move', label: '在睡袋里做仰卧起坐', sub: '消耗体力产热' });
     choices.push({ id: 'sleep', label: '继续睡' });
     choices.push({ id: 'up', label: '不睡了，起来' });
-    const c = await this.dialog({ who: '冻醒', text: ['你被冻醒了，止不住地发抖。帐篷内壁上结满了霜。', `现在是 ${fmtClock(st.time)}。离天亮还有很久。`], choices });
+    const c = await this.dialog({ pollSource: 'scene:cold_wake', who: '冻醒', text: ['你被冻醒了，止不住地发抖。帐篷内壁上结满了霜。', `现在是 ${fmtClock(st.time)}。离天亮还有很久。`], choices });
     if (c === 'cook') await this.cook(true);
     if (c === 'drink') this.drinkThermos();
     if (c === 'eat') this.eat(this._pickFood());
@@ -1884,9 +1898,9 @@ export class Game {
     checkpoint();
     // 这些发生在虚构的下山之后，不消耗山上剩余电量，也不保证他人获救。
     if (type !== 'dead' && type !== 'sausage' && (st.flags.reportChen && !st.story.threads.chenReportCompleted || st.story.threads.reportNote && !st.story.threads.reportNoteCompleted) && !st.ending.reportResolved) {
-      const c = await this.dialog({ who: '下山以后 · 一条尚未移交的线索', sub: '虚构后续',
+      const c = await this.dialog({ pollSource: 'scene:ending_report', who: '下山以后 · 一条尚未移交的线索', sub: '虚构后续',
         text: ['你记下了遇险者的最后位置与时间。现在终于可以向警方完整说明情况。'],
-        choices: [{ id: 'report', label: '移交位置、时间与伤情记录' }, { id: 'leave', label: '没有移交这条线索' }] });
+        choices: [{ id: 'report', label: '移交位置、时间与伤情记录' }, { id: 'leave', label: '先把记录留在手机里' }] });
       if (this.st !== st) return;
       st.ending.reportResolved = true;
       if (c === 'report') {
@@ -1898,7 +1912,7 @@ export class Game {
     }
     checkpoint();
     if (type !== 'dead' && st.story.threads.contactHome && !st.ending.familyResolved) {
-      const c = await this.dialog({ who: '山下 · 回一条消息', sub: '虚构后续', text: ['手机重新接通了网络，家人的消息还停在那句“你现在在哪儿？”上。'],
+      const c = await this.dialog({ pollSource: 'scene:ending_family', who: '山下 · 回一条消息', sub: '虚构后续', text: ['手机重新接通了网络，家人的消息还停在那句“你现在在哪儿？”上。'],
         choices: [{ id: 'reply', label: '告诉他们：我下山了' }, { id: 'later', label: '先休息，稍后联系' }] });
       if (this.st !== st) return;
       st.ending.familyResolved = true;
@@ -1939,6 +1953,9 @@ export class Game {
       insurance: !!st.flags.insurance,
     };
     if (stats.fines > 5000) stats.fines = 5000;
+    st.ending.pending = false;
+    this.analytics?.track('run_ended', st, { ending: type, cause: cause || undefined, death: type === 'dead', activeSeconds: st.telemetry?.activeSeconds || 0 });
+    void this.analytics?.flush();
     localStorage.removeItem(SAVE_KEY);
     // 游玩记录
     const epilogues = collectEpilogues(st, type, fates);
@@ -2167,15 +2184,25 @@ export class Game {
     const st = this.st;
     if (this._eventFocus?.id === 'hallucination' && this.world.hallu?.visible) this.beginEventFocus({ object: this.world.hallu, event: 'hallucination' });
     this._dialogSerial = (this._dialogSerial || 0) + 1;
-    const result = await this.ui.dialog(opts);
+    const poll = makeQuestion(opts.pollSource || this._pollSource, opts.choices);
+    const result = await this.ui.dialog({ ...opts, poll });
     if (!this.eventRunning && this.st === st && !this.over) recordDialog(st);
     return result;
   }
   say(who, text, ok = '继续') { return this.dialog({ who, text, choices: [{ id: 'ok', label: ok }] }); }
 
   save() {
-    if (!this.st || this.over) return;
-    try { localStorage.setItem(SAVE_KEY, this.eventSnapshot ?? JSON.stringify(this.st)); } catch (e) { /* 存储满了 */ }
+    if (!this.st || this.over && !this.st.ending?.pending) return;
+    try {
+      let data = this.st;
+      if (this.eventSnapshot && !this.over) {
+        data = JSON.parse(this.eventSnapshot);
+        if (this.st.telemetry) data.telemetry = this.st.telemetry;
+        else delete data.telemetry;
+        this.eventSnapshot = JSON.stringify(data);
+      }
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) { /* 存储受限不阻止剧情 */ }
   }
 
   static loadSave() {

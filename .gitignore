@@ -5,7 +5,8 @@ dist/
 .wrangler/
 .DS_Store
 *.log
-output/playwright/
+output/
+tests/__pycache__/
 
 # Local promotional exports and render caches
 promo/build/

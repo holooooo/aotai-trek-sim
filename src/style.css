@@ -386,3 +386,18 @@ a { color: var(--blue); }
 .story-decisions p { margin: 4px 0; }
 .end-sec h3 { flex-wrap: wrap; }
 .case .src { overflow-wrap: anywhere; }
+
+/* 选后揭晓：保留原选项和镜头，不用颜色暗示正确率。 */
+.dlg.showing-results .dlg-body, .dlg.showing-results .choice small { display:none; }
+.dlg.showing-results .choice { position:relative; display:flex; align-items:center; justify-content:space-between; gap:12px; overflow:hidden; min-height:46px; opacity:1; color:var(--ink); cursor:default; }
+.dlg.showing-results .choice b { position:relative; z-index:1; min-width:0; }
+.dlg.showing-results .choice.is-picked { border-color:var(--yellow); }
+.dlg.showing-results .choice.is-picked b::after { content:' · 已选'; font-size:11px; color:var(--yellow); white-space:nowrap; }
+.poll-score { position:relative; z-index:1; flex:none; font-family:var(--mono); font-size:18px; }
+.poll-bar { position:absolute; inset:0 auto 0 0; background:rgba(160,170,178,.13); pointer-events:none; }
+.dlg-poll-feedback { padding:10px 14px 14px; flex:none; border-top:1px solid var(--line); }
+.poll-status { font-size:11px; line-height:1.5; color:var(--muted); margin-bottom:8px; }
+.poll-actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+.poll-actions .sbtn, .privacy-controls .sbtn { min-height:44px; }
+.privacy-controls { font-size:11px; line-height:1.5; color:var(--muted); margin:8px 0 16px; }
+.privacy-controls p { margin:0 0 8px; }

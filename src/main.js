@@ -1,6 +1,7 @@
 // 入口：组装世界、输入、音频、界面与游戏，管理标题场景与主循环。
 import './style.css';
 import './hud.css';
+import { AnalyticsClient } from './analytics/client.js';
 import * as THREE from 'three';
 import { World } from './world/world.js';
 import { Input } from './ui/input.js';
@@ -23,10 +24,13 @@ const input = new Input({
 });
 const audio = new GameAudio();
 const music = new Music(audio);
+const analytics = new AnalyticsClient({ fetcher: (...args) => (import.meta.env.PROD || globalThis.__AOTAI_TEST_ANALYTICS__) ? fetch(...args) : Promise.reject(new Error('local-only')) });
 const ui = new UI({ mobile, audio, input });
+ui.analytics = analytics;
 ui.music = music;
 const game = new Game(world, ui, input, audio);
 game.music = music;
+game.analytics = analytics;
 ui.game = game;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -83,6 +87,8 @@ function titleUpdate(dt) {
 
 function startTrek(st, fresh) {
   mode = 'trek';
+  analytics.beginRun(st, { fresh });
+  void analytics.flush();
   ui.closeScreen();
   game.start(st);
   if (fresh) {
@@ -93,6 +99,16 @@ function startTrek(st, fresh) {
 }
 
 const app = {
+  toggleAnalytics() {
+    analytics.setEnabled(!analytics.enabled);
+    if (analytics.enabled && game.st && !game.over) analytics.beginRun(game.st, { fresh: false });
+    if (!analytics.enabled) {
+      if (game.st) delete game.st.telemetry;
+      try { const saved = Game.loadSave(); if (saved?.telemetry) { delete saved.telemetry; localStorage.setItem('aotai-save-v1', JSON.stringify(saved)); } } catch {}
+    }
+    game.save();
+    ui.toast(analytics.enabled ? '已参与匿名统计，可随时在菜单中关闭' : '已停止上报，清除本机统计标识与待发送队列', 'info');
+  },
   toTitle() {
     mode = 'title';
     game.dispose();
@@ -188,16 +204,26 @@ input.onKey((k) => {
 const unlock = () => audio.unlock();
 window.addEventListener('pointerdown', unlock);
 window.addEventListener('keydown', unlock);
-document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'trek') game.save(); });
+function checkpointAnalytics() {
+  if (mode === 'trek' && game.st && !game.over) analytics.track('run_checkpoint', game.st, { activeSeconds: game.st.telemetry?.activeSeconds || 0, uniqueKey: `lifecycle:${Math.floor(game.st.telemetry?.activeSeconds || 0)}` });
+  game.save();
+  void analytics.flush();
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) checkpointAnalytics(); });
+window.addEventListener('pagehide', checkpointAnalytics);
 
 // 主循环
 let last = performance.now();
-let frames = 0;
+let frames = 0, analyticsTimer = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (mode === 'trek') game.update(dt);
+  if (mode === 'trek') {
+    if (!document.hidden && game.st && !game.over && !game.busy && !game.eventRunning && !ui.modalOpen && game.st.story?.pacing?.started) analytics.tick(game.st, dt);
+    game.update(dt);
+  }
   else titleUpdate(dt);
+  if ((analyticsTimer += dt) >= 15) { analyticsTimer = 0; void analytics.flush(); }
   music.update(dt, musicMood());
   world.render();
   if (++frames === 30) document.getElementById('boot').classList.add('gone');

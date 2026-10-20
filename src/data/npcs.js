@@ -30,9 +30,9 @@ export const NPCS = [
           '你注意到他们只背着一日轻装包，没有帐篷，也没有睡袋。领头的男生晃了晃手机："都开飞行模式了，免得被定位罚款。"',
         ],
         choices: [
-          { id: 'persuade', label: '劝他们回去', sub: '把天气、气温和这条线的事故讲给他们听' },
-          { id: 'warn', label: '提醒他们关掉飞行模式', sub: '至少出事时能被找到' },
-          { id: 'leave', label: '不关我的事', sub: '各走各的' },
+          { id: 'persuade', label: '和他们聊聊是否继续走', sub: '谈谈装备、天气和这条线的情况' },
+          { id: 'warn', label: '聊聊手机的联络方式', sub: '把自己的顾虑告诉他们' },
+          { id: 'leave', label: '各走各的', sub: '不介入他们的安排' },
         ],
       });
       if (c === 'persuade') {
@@ -82,10 +82,10 @@ export const NPCS = [
           g.isNurse() ? '【护士】他说话含糊、动作迟缓，寒战已经很微弱——中度失温。必须马上保温，不能让他再走动消耗。' : '他抖得越来越轻了。你不确定这是好事还是坏事。',
         ],
         choices: [
-          { id: 'warm', label: '给他保暖', sub: g.warmLabel() },
-          { id: 'sos', label: '发送求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
+          { id: 'warm', label: '先帮他把身上捂暖', sub: (g.st.warmers > 0 || g.hasItem('blanket') || (g.st.thermos.l >= 0.25 && g.st.thermos.temp > 40)) ? '会消耗手边可用的保暖物资' : '你没有多余的保暖物资' },
+          { id: 'sos', label: '发送他的求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
           { id: 'take', label: '扶他一起走', sub: '速度会变慢，你们需要一起找下撤点' },
-          { id: 'leave', label: '你自身难保', sub: '留下他，继续走' },
+          { id: 'leave', label: '从他身边离开，继续走', sub: '留下他在原处，自己继续前进' },
         ],
       });
       if (c === 'warm' || c === 'take' || c === 'sos') {
@@ -97,7 +97,7 @@ export const NPCS = [
         if (r.ok) {
           g.setFate(npc.id, 'rescued');
           const c2 = await g.dialog({ who: '掉队的男生', text: ['求救已发出。救援队需要时间。', '你可以陪他等，也可以把物资留给他，自己继续。'],
-            choices: [{ id: 'stay', label: '留下来一起等', sub: '原地扎营，等待救援' }, { id: 'go', label: '留下物资，继续走' }] });
+            choices: [{ id: 'stay', label: '留下来陪他等', sub: '需要一起安排原地停留，等待救援' }, { id: 'go', label: '把物资留下，自己继续走' }] });
           if (c2 === 'stay') { g.recruit(npc.id); g.st.rescue.withNpc = npc.id; return; }
           g.warmNpc(npc.id);
           g.despawn(npc.id, false);
@@ -139,8 +139,8 @@ export const NPCS = [
         ],
         choices: [
           { id: 'ask', label: '问问前面的情况' },
-          { id: 'together', label: '和他一起原路下撤', sub: '回塘口' },
-          { id: 'trade', label: '问他能不能匀点物资', sub: g.needsSupply() ? '你缺少燃料或食物' : '你暂时不缺' },
+          { id: 'together', label: '和他一起往回走', sub: '需要沿来路返回塘口' },
+          { id: 'trade', label: '问他手头有什么可以交换', sub: '看他现有余量，也要看你们如何分配' },
           { id: 'go', label: '道别，继续往前' },
         ],
       });
@@ -170,7 +170,7 @@ export const NPCS = [
       const c = await g.dialog({
         who: '小牟', text: ['"还有什么要问的？"'],
         choices: [
-          { id: 'together', label: '和他一起原路下撤' },
+          { id: 'together', label: '和他一起往回走', sub: '需要沿来路返回' },
           { id: 'go', label: '道别，继续往前' },
         ],
       });
@@ -212,10 +212,10 @@ export const NPCS = [
             g.isNurse() ? '【护士】他已经不怎么发抖了，反应迟钝——中度失温的征兆。这时候他自己判断不了自己的状况。' : '他的眼神有点发直。',
           ] : ['老吴靠着帐篷，眼睛半闭着。'],
           choices: [
-            { id: 'thermos', label: '拧开他的保温杯，让他喝热水', sub: warmed ? '已经喝过了' : '热水只有喝下去才有用', disabled: warmed },
-            { id: 'persuade', label: '劝他一起下撤到2800营地', sub: '他会拖慢你，但这是他最好的机会' },
-            { id: 'sos', label: '替他发出求救', sub: g.commsLabel(), disabled: !g.comms().any },
-            { id: 'leave', label: '把物资留给他，继续赶路', sub: '就像小牟做的那样' },
+            { id: 'thermos', label: '打开他的保温杯', sub: warmed ? '杯子已经打开过' : '里面的水还可能有温度', disabled: warmed },
+            { id: 'persuade', label: '请他和你一起往回走', sub: '需要重新安排两个人的速度和路线' },
+            { id: 'sos', label: '替他尝试发出求救', sub: g.commsLabel(), disabled: !g.comms().any },
+            { id: 'leave', label: '用手边的保暖物资帮他整理，自己继续走', sub: '会消耗可用的保温物资，不带他同行' },
           ],
         });
         if (c === 'thermos') {
@@ -286,10 +286,10 @@ export const NPCS = [
           '"我的充电宝第四天就冻死机了……滑坠的时候包摔破了，吃的全没了。我吃了两天牙膏。"',
         ],
         choices: [
-          { id: 'aid', label: '处理他的骨折', sub: g.hasItem('firstaid') ? '使用急救包固定手臂' : '没有急救包，只能用登山杖和绳子凑合', },
-          { id: 'feed', label: '给他吃的和喝的', sub: g.feedLabel() },
-          { id: 'sos', label: '发送求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
-          { id: 'leave', label: '离开', sub: '你没有能力再照顾一个人' },
+          { id: 'aid', label: '查看能否处理他的手臂', sub: g.hasItem('firstaid') ? '使用急救包固定手臂' : '没有急救包，只能用登山杖和绳子凑合', },
+          { id: 'feed', label: '分给他一些吃的和喝的', sub: g.feedLabel() },
+          { id: 'sos', label: '发送他的求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
+          { id: 'leave', label: '先离开石缝', sub: '自己继续安排路程' },
         ],
       });
       if (c === 'leave') {
@@ -311,7 +311,7 @@ export const NPCS = [
         if (r.ok) {
           g.setFate(npc.id, 'rescued');
           const c2 = await g.dialog({ who: '石缝里的少年', text: ['坐标已发出。救援队知道要来2800营地附近找人了。'],
-            choices: [{ id: 'stay', label: '陪他等救援' }, { id: 'go', label: '把能给的都留下，继续走' }] });
+            choices: [{ id: 'stay', label: '留在这里陪他等' }, { id: 'go', label: '留下物资，自己继续走' }] });
           if (c2 === 'stay') { g.recruit(npc.id); g.st.rescue.withNpc = npc.id; return; }
           g.feedNpc(npc.id); g.warmNpc(npc.id);
           g.despawn(npc.id, false);
@@ -321,8 +321,8 @@ export const NPCS = [
       const c3 = await g.dialog({
         who: '石缝里的少年', text: ['"你能……带我出去吗？"'],
         choices: [
-          { id: 'take', label: '带他一起走', sub: '前面不远就是2800营地，可以从南坡下撤' },
-          { id: 'leave2', label: '留下食物，告诉他在2800营地等救援', sub: '原地等待，不要乱走' },
+          { id: 'take', label: '带他一起往前走', sub: '需要一起寻找能下撤的路线' },
+          { id: 'leave2', label: '留下食物，让他自己决定去留', sub: '他需要自行选择停在原处还是继续移动' },
         ],
       });
       if (c3 === 'take') {
@@ -360,10 +360,10 @@ export const NPCS = [
           '他靠吃烂掉的野果、树叶，还有一瓶过期的腐乳活到了现在。',
         ],
         choices: [
-          { id: 'feed', label: '把吃的和水分给他', sub: g.feedLabel() },
-          { id: 'take', label: '扶他一起下山', sub: '核桃坪不远了' },
-          { id: 'sos', label: '发送求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
-          { id: 'leave', label: '记下位置，出山后报警', sub: '你自己也快撑不住了' },
+          { id: 'feed', label: '分给他一些吃的和水', sub: g.feedLabel() },
+          { id: 'take', label: '扶他一起往林道下方走', sub: '需要一起沿林道寻找下撤方向' },
+          { id: 'sos', label: '发送他的求救坐标', sub: g.commsLabel(), disabled: !g.comms().any },
+          { id: 'leave', label: '记下位置，先继续下撤', sub: '信息需要在有条件时再转交' },
         ],
       });
       if (g.fate('wu')) {
@@ -417,10 +417,10 @@ export const NPCS = [
           g.isNurse() ? '【护士】你探了帐篷里那个男人的颈动脉。已经没有了。' : '帐篷里的人一动不动。',
         ],
         choices: [
-          { id: 'coord', label: '把准确坐标发给救援队', sub: g.commsLabel(), disabled: !g.comms().any },
-          { id: 'take', label: '带她一起走到大爷海', sub: '那里有人、有信号' },
-          { id: 'stay', label: '陪她等救援', sub: '原地扎营' },
-          { id: 'leave', label: '留下物资，继续走' },
+          { id: 'coord', label: '把当前位置发给救援队', sub: g.commsLabel(), disabled: !g.comms().any },
+          { id: 'take', label: '陪她沿路线向前走', sub: '前方是否有人和信号，需要到现场确认' },
+          { id: 'stay', label: '留在这里陪她等', sub: '需要一起安排原地停留' },
+          { id: 'leave', label: '留下能用的物资，自己继续走', sub: '她仍需自行决定下一步' },
         ],
       });
       if (c === 'coord') {
@@ -428,7 +428,7 @@ export const NPCS = [
         if (r.ok) {
           g.setFate(npc.id, 'rescued');
           const c2 = await g.dialog({ who: '小雨', text: ['"谢谢……谢谢你。"', '坐标发出去了。救援队回复：已收到，正在调整搜索方向。'],
-            choices: [{ id: 'stay', label: '陪她等救援队' }, { id: 'go', label: '留下物资，继续走' }] });
+            choices: [{ id: 'stay', label: '留在这里陪她等' }, { id: 'go', label: '留下物资，自己继续走' }] });
           if (c2 === 'stay') { g.recruit(npc.id); g.st.rescue.withNpc = npc.id; return; }
           g.warmNpc(npc.id); g.despawn(npc.id, false);
           return;

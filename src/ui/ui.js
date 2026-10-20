@@ -1,3 +1,4 @@
+import { distribution } from '../analytics/polls.js';
 // DOM 界面：标题、角色、商店、HUD、弹窗、背包、地图、营地、结局、事故档案。
 import { ROLES, roleById } from '../data/roles.js';
 import { ITEMS, CATEGORIES, SHOP_ORDER, SLOTS, SLOT_NAMES } from '../data/items.js';
@@ -103,6 +104,10 @@ export class UI {
     this._syncInput();
   }
 
+  privacyControls() {
+    return `<div class="privacy-controls"><p>可选匿名统计：随机浏览器编号，汇总游玩、道具、事件与结局；应用不保存姓名、IP或精确位置。Cloudflare处理基础网络连接信息。关闭后停止上报并清除本机标识与队列，已汇总计数不回退。比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '参与匿名统计（默认关闭）'}</button></div>`;
+  }
+
   showTitle({ hasSave }) {
     const page = this._page(`
       <div class="title-block">
@@ -124,10 +129,12 @@ export class UI {
         </div>
       </div>
       <div class="title-foot">
+        ${this.privacyControls()}
         本游戏根据公开报道改编，人物均为化名或虚构。鳌太线位于太白山国家级自然保护区，<b>自2018年起禁止穿越</b>。
         游戏中的路线、海拔与数值均为近似，<b>不能作为任何出行参考</b>。
       </div>`, 'title-page', 'title');
     this._bind(page, {
+      privacy: () => { this.app.toggleAnalytics(); this.showTitle({ hasSave }); },
       continue: () => this.app.continueGame(),
       new: () => this.showRoles(),
       records: () => this.showRecords(() => this.app.toTitle()),
@@ -262,6 +269,7 @@ export class UI {
       const it = ITEMS[id];
       if (!bought[id]) return;
       bought[id]--;
+      this.analytics?.track('shop_refund', st, { itemId: id, quantity: 1, cost: it.price });
       st.money += it.price;
       if (it.kind === 'water') st.water.liquid = Math.max(0, st.water.liquid - it.liters);
       else if (it.kind === 'gas') { const k = id === 'gas_alpine' ? 'alpine' : 'normal'; st.gas[k] = Math.max(0, st.gas[k] - it.units); }
@@ -309,7 +317,7 @@ export class UI {
     this._bind(page, {
       back: () => this.showRoles(),
       cat: (d) => { cat = d.id; renderItems(); },
-      plus: (d) => { const it = ITEMS[d.id]; if (!canBuy(d.id)) return; st.money -= it.price; addItem(st, d.id); bought[d.id] = (bought[d.id] || 0) + 1; render(); },
+      plus: (d) => { const it = ITEMS[d.id]; if (!canBuy(d.id)) return; st.money -= it.price; addItem(st, d.id); this.analytics?.track('shop_buy', st, { itemId: d.id, quantity: 1, cost: it.price }); bought[d.id] = (bought[d.id] || 0) + 1; render(); },
       minus: (d) => { undo(d.id); render(); },
       depart: () => this.app.depart(st),
     });
@@ -635,7 +643,10 @@ export class UI {
         <div class="dlg-choices">${choices.map((c, k) => `<button class="choice" data-id="${esc(c.id)}" ${c.disabled ? 'disabled' : ''}>
           <b>${this.isMobile ? '' : `<span class="mono" style="color:var(--muted);margin-right:6px">${k + 1}</span>`}${esc(c.label)}</b>${c.sub ? `<small>${esc(c.sub)}</small>` : ''}</button>`).join('')}</div></div>`;
       d.classList.add('open');
+      let selected = null, settled = false, resultReady = false;
       const finish = (id) => {
+        if (settled) return;
+        settled = true;
         d.classList.remove('open');
         d.innerHTML = '';
         window.removeEventListener('keydown', onKey);
@@ -643,9 +654,67 @@ export class UI {
         this._syncInput();
         resolve(id);
       };
+      const select = async (id) => {
+        if (selected !== null || settled) return;
+        selected = id;
+        const canPoll = opts.poll && this.analytics && (import.meta.env.PROD || globalThis.__AOTAI_TEST_ANALYTICS__);
+        if (!canPoll) return finish(id);
+        d.querySelector('.dlg').classList.add('showing-results');
+        d.querySelectorAll('.choice').forEach(b => {
+          b.disabled = true;
+          b.classList.toggle('is-picked', b.dataset.id === id);
+          const score = document.createElement('span');
+          score.className = 'poll-score'; score.textContent = '…'; b.appendChild(score);
+          const bar = document.createElement('i'); bar.className = 'poll-bar'; b.appendChild(bar);
+        });
+        const footer = document.createElement('div');
+        footer.className = 'dlg-poll-feedback';
+        footer.innerHTML = `<div class="poll-status" role="status" aria-live="polite">正在读取玩家选择分布…</div><div class="poll-actions">${this.analytics.enabled ? '' : '<button class="sbtn alt" data-act="poll-consent">参与匿名统计</button>'}<button class="sbtn" data-act="poll-continue" disabled>继续</button></div>`;
+        d.querySelector('.dlg').appendChild(footer);
+        const status = footer.querySelector('.poll-status');
+        const next = footer.querySelector('[data-act="poll-continue"]');
+        next.addEventListener('click', () => { if (resultReady) finish(id); });
+        let loadSeq = 0;
+        const load = async () => {
+          const ticket = ++loadSeq;
+          resultReady = false; next.disabled = true; status.textContent = '正在读取玩家选择分布…';
+          let result = null, deadline;
+          try {
+            result = await Promise.race([
+              this.analytics.choose(this.game?.st, opts.poll, id),
+              new Promise(resolve => { deadline = setTimeout(() => resolve(null), 2500); }),
+            ]);
+          } catch {} finally { clearTimeout(deadline); }
+          if (settled || !footer.isConnected || ticket !== loadSeq) return;
+          const stats = distribution(opts.poll, result);
+          d.querySelectorAll('.choice').forEach(b => {
+            const v = stats?.values[b.dataset.id];
+            b.querySelector('.poll-score').textContent = v?.percent == null ? '—' : `${v.percent}%`;
+            b.querySelector('.poll-bar').style.width = `${v?.percent || 0}%`;
+            if (v) b.setAttribute('aria-label', `${choices.find(c => c.id === b.dataset.id)?.label}，${v.count}次选择${v.percent == null ? '，暂无比例' : `，${v.percent}%`}${b.dataset.id === id ? '，本次已选' : ''}`);
+          });
+          status.textContent = !stats ? '统计暂不可用，可继续游玩。' : !stats.total ? '暂无已上报选择，不代表任何选项更好。' : `${stats.total.toLocaleString()}次有效首选${stats.total < 20 ? ' · 样本较少' : ''} · 比例不代表正确率${result.recorded ? ' · 含本次' : ''}`;
+          if (!this.analytics.enabled) status.textContent += ' 你的选择仅保存在本机。';
+          resultReady = true; next.disabled = false;
+        };
+        const join = footer.querySelector('[data-act="poll-consent"]');
+        join?.addEventListener('click', async () => {
+          join.disabled = true;
+          this.analytics.setEnabled(true);
+          this.analytics.beginRun(this.game?.st, { fresh: false });
+          this.game?.save();
+          join.remove();
+          await load();
+        });
+        void load();
+      };
       const onKey = (e) => {
+        if (selected !== null) {
+          if ((e.key === 'Enter' || e.key === ' ') && resultReady) { e.preventDefault(); finish(selected); }
+          return;
+        }
         const n = parseInt(e.key, 10);
-        if (n >= 1 && n <= choices.length && !choices[n - 1].disabled) { e.preventDefault(); finish(choices[n - 1].id); }
+        if (n >= 1 && n <= choices.length && !choices[n - 1].disabled) { e.preventDefault(); void select(choices[n - 1].id); }
       };
       window.addEventListener('keydown', onKey);
       const openedAt = performance.now();
@@ -653,7 +722,7 @@ export class UI {
         // 防止弹窗出现时手指/鼠标正好落在选项上造成误触
         if (performance.now() - openedAt < 450) return;
         this.audio?.click();
-        finish(b.dataset.id);
+        void select(b.dataset.id);
       }));
     });
     const p = this.dialogQueue.then(run);
@@ -818,9 +887,11 @@ export class UI {
         <button class="btn ghost" data-act="about">操作说明</button>
         <button class="btn danger" data-act="quit">放弃本局，回到标题</button>
       </div>
+      ${this.privacyControls()}
       <div style="font-size:12px;color:var(--muted)">游戏会在抵达途经点、睡觉后自动存档。</div>`);
     this._bind(el, {
       close: () => this.closeSheet(),
+      privacy: () => { this.app.toggleAnalytics(); this.openMenu(); },
       q: (d) => { world.applyQuality(d.id); this.openMenu(); },
       sound: () => { this.audio?.setMuted(!this.audio.muted); this.openMenu(); },
       vol: (d) => { if (this.music) this.music.setVolume(Math.max(0, Math.min(1, this.music.volume + Number(d.d)))); this.openMenu(); },

@@ -58,9 +58,9 @@ export const EVENTS = [
       const c = await g.dialog({
         who: '流量焦虑', text: ['眼前是绵延的雪脊和翻滚的云海。', '"这个镜头能爆。"你脑子里冒出一个念头：站到崖边，让风把冲锋衣吹起来，拍一段。'],
         choices: [
-          { id: 'shoot', label: '站到崖边拍', sub: '素材 +1，但风很大' },
-          { id: 'safe', label: '在安全的地方随便拍两张' },
-          { id: 'no', label: '不拍了，赶路' },
+          { id: 'shoot', label: '站到崖边取景', sub: '画面会更靠近崖边，风也更直接' },
+          { id: 'safe', label: '在离崖边远些的地方拍几张' },
+          { id: 'no', label: '收起相机，继续赶路' },
         ],
       });
       if (c === 'shoot') {
@@ -86,7 +86,7 @@ export const EVENTS = [
     async run(g) {
       const c = await g.dialog({
         who: '电量告急', text: [`手机电量掉到了${Math.round(g.st.bat.phone)}%。低温会让锂电池快速掉电，甚至直接关机。`, '有经验的人会把手机、充电宝、气罐揣在贴身的口袋里。'],
-        choices: [{ id: 'yes', label: '把电子设备和气罐揣进怀里' }, { id: 'no', label: '算了，麻烦' }],
+        choices: [{ id: 'yes', label: '把电子设备和气罐放进贴身口袋' }, { id: 'no', label: '暂时还是放在包里' }],
       });
       if (c === 'yes') { g.st.keepWarm = true; g.toast('电子设备和气罐已贴身放好。', 'good'); }
     },
@@ -126,8 +126,8 @@ export const EVENTS = [
       const c = await g.dialog({
         who: '……', text: ['雾里亮起了一团暖黄色的光。', '你揉揉眼睛——是一个小摊。烤肠机在转，油滋滋地响，有人在冲你招手："来一根？刚烤好的！"'],
         choices: [
-          { id: 'go', label: '朝光走过去', sub: '那边好暖和' },
-          { id: 'stop', label: '停下来，喝口水，吃点东西', sub: '这不可能是真的' },
+          { id: 'go', label: '朝那团光走几步', sub: '看起来像有个摊位' },
+          { id: 'stop', label: '停下来调整呼吸，观察周围', sub: '先看看光线和周围景物有没有变化' },
         ],
       });
       if (c === 'go') {
@@ -151,8 +151,8 @@ export const EVENTS = [
         who: '热', text: ['你突然觉得浑身燥热，像是在蒸桑拿。', '衣服勒得喘不过气。脱掉外套，一定会舒服很多……'],
         shuffle: g.st.body.stress > 60,
         choices: [
-          { id: 'strip', label: '脱掉外套', sub: '太热了' },
-          { id: 'hold', label: '这不对劲。裹紧所有衣服，吃东西', sub: '反常脱衣——重度失温的典型症状' },
+          { id: 'strip', label: '脱掉外套', sub: '衣服一松，身体会觉得轻些' },
+          { id: 'hold', label: '先不脱外套，检查保暖层', sub: '整理现有衣物，留意身体变化' },
         ],
       });
       if (c === 'strip') {
@@ -175,9 +175,9 @@ export const EVENTS = [
       const c = await g.dialog({
         who: '羚牛', text: ['林子里传来一声闷响。一头羚牛站在十几米外，低着头盯着你，鼻孔里喷着白气。', '秦岭羚牛看起来笨重，发起狂来比熊还危险。'],
         choices: [
-          { id: 'back', label: '慢慢后退，绕开它' },
-          { id: 'shout', label: '大声吼叫吓走它' },
-          { id: 'run', label: '转身就跑' },
+          { id: 'back', label: '沿侧面慢慢退开' },
+          { id: 'shout', label: '出声让它离开' },
+          { id: 'run', label: '转身加快脚步' },
         ],
       });
       if (c === 'back') { if (!await g.eventPause(25)) return; g.addStress(5); g.toast('你绕了一大圈，羚牛没有追来。', 'good'); }
@@ -201,10 +201,10 @@ export const EVENTS = [
       const c = await g.dialog({
         who: '有信号了', text: ['手机震了一下，屏幕上跳出几十条消息。家里人问你元旦在哪儿过。'],
         choices: [
-          { id: 'call', label: '给家里打个电话', sub: '压力 -15，耗电' },
+          { id: 'call', label: '给家里打个电话', sub: '会占用电量，也许能让你缓一口气' },
           { id: 'sos', label: '报警求救', sub: '说明你的位置，等待救援' },
-          { id: 'live', label: '开直播', sub: '博主专属：让粉丝看到你的位置', disabled: g.st.role !== 'blogger' || g.st.bat.phone < 8 },
-          { id: 'no', label: '不回了，省电' },
+          { id: 'live', label: '开一段直播', sub: '需博主身份和足够手机电量；当前位置会在线公开', disabled: g.st.role !== 'blogger' || g.st.bat.phone < 8 },
+          { id: 'no', label: '暂时不回复，继续留着电量' },
         ],
       });
       if (c === 'call') { if (!g.spendBattery('phone', 4)) return; g.addStress(-15); g.recordStory('contactHome'); g.recordStory('familyCallbackAt', g.st.time); if (!await g.eventPause(10)) return; g.toast('妈妈在电话那头说："注意安全，早点下山。"', 'info', 5000); }
