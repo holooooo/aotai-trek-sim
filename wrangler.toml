@@ -1,5 +1,4 @@
 name = "aotai-trek-sim"
-account_id = "450b22761d9a7a6918352fd4800f53a9"
 pages_build_output_dir = "./dist"
 compatibility_date = "2026-08-01"
 
