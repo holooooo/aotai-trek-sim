@@ -20,7 +20,7 @@ const table=(title,cols,data)=>`<section><h2>${esc(title)}</h2><div class="scrol
 const avg=o.avg_unlocked_endings_per_device;
 const active=o.avg_active_seconds_per_active_run;
 const body=`<header><div class="eyebrow">AOTAI · AUTHOR ONLY · D1</div><h1>玩家统计 / 作者快照</h1><p>生成时间 ${esc(new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}))}（北京时间）</p></header>
-<div class="notice">仅统计自愿参与且成功上报的数据，不代表所有访问者；上线前的本地历史不回补。这里不展示浏览器编号、逐人行为或IP。</div>
+<div class="notice">仅统计默认开启或主动重新开启后成功上报的数据，不代表所有访问者；上线前的本地历史不回补。这里不展示浏览器编号、逐人行为或IP。</div>
 <div class="stats">${stat('新开局次数',o.run_started??0)}${stat('继续行程次数',o.run_resumed??0)}${stat('统计参与设备',o.players??0)}${stat('已完成局数',o.ended_runs??0)}${stat('死亡次数',o.deaths??0)}${stat('平均已解锁结局 / 设备',avg==null?'暂无':Number(avg).toFixed(2))}${stat('平均可操作时长 / 活跃局',active==null?'暂无':`${(Number(active)/60).toFixed(1)} 分钟`)}</div>
 ${table('购买与退款（游戏内货币）',['道具','类别','购买数量','退款数量','购买金额','退款金额'],(rows[1]||[]).map(r=>[ITEMS[r.item_id]?.name||r.item_id,r.category,r.bought_quantity,r.refunded_quantity,r.buy_cost,r.refund_cost]))}
 ${table('事件漏斗',['事件ID','触发','完成'],(rows[2]||[]).map(r=>[r.event_id,r.started,r.completed]))}

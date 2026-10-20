@@ -5,17 +5,19 @@ import { wornItems, tentItem, bagItem, padItem, has } from './state.js';
 import { airTemp, windChill } from './weather.js';
 import { clamp } from '../world/noise.js';
 import { ensureDifficulty, maxHealth } from './difficulty.js';
+import { garmentWetness, stepGarmentMoisture } from './clothes.js';
+import { nutritionModifiers, stepFoodEffects } from './nutrition.js';
+import { stepStress } from './stress.js';
 
 export function clothing(st) {
   const worn = wornItems(st);
-  const wet = st.body.wet / 100;
   let clo = 0.25;
   let windproof = 0, waterproof = 0;
   for (const [slot, id] of Object.entries(worn)) {
     if (slot === 'insul' && !st.wearInsul) continue;
     const it = ITEMS[id];
     const keep = it.wetKeep ?? 0.5;
-    const w = slot === 'shell' ? wet * 0.3 : wet;
+    const w = garmentWetness(st, id) / 100;
     clo += (it.clo || 0) * (1 - w * (1 - keep));
     if (slot === 'shell') { windproof = it.windproof || 0; waterproof = it.waterproof || 0; }
   }
@@ -61,6 +63,8 @@ export function stepBody(st, env, act, minutes, role) {
   while (remaining > 0) {
     const dt = Math.min(2, remaining);
     remaining -= dt;
+    env.cl = clothing(st);
+    const nutrition = nutritionModifiers(st);
     const walking = act.mode === 'walk';
     const sleeping = act.mode === 'sleep';
     const resting = act.mode === 'rest' || act.mode === 'idle' || act.mode === 'crouch';
@@ -109,33 +113,21 @@ export function stepBody(st, env, act, minutes, role) {
     b.core = clamp(b.core + dCore, 20, 37.6);
     b.shiver = shiver;
 
-    // —— 潮湿 ——
-    if (walking && H > 0.35) {
-      const sweatRate = (H - 0.35) * 0.55 * (st.wearInsul ? 1.3 : 1) * (env.cl.cotton ? 1.3 : 1);
-      b.wet += sweatRate * dt;
-    }
-    if (env.precip > 0) {
-      const melt = env.T > -2 ? 0.6 : 0.33;
-      b.wet += env.precip * melt * (1 - env.cl.waterproof) * dt;
-    }
-    if (walking && act.snowDeep > 0.5 && !env.cl.gaiters && env.cl.shoeDry < 0.6) b.wet += 0.05 * dt;
-    if (!(walking && H > 0.35) && env.precip <= 0.02) {
-      const inBag = sleeping && bagItem(st);
-      b.wet -= (inBag ? 0.11 : env.tentInfo ? 0.06 : 0.035) * (env.cl.cotton ? 0.5 : 1) * dt;
-    }
-    b.wet = clamp(b.wet, 0, 100);
+    // —— 分件潮湿：汗和雪只打湿在穿衣物，包内备用衣物保持原状 ——
+    const sweatRate = walking && H > 0.35 ? (H - 0.35) * 0.55 * (st.wearInsul ? 1.3 : 1) * (env.cl.cotton ? 1.3 : 1) : 0;
+    stepGarmentMoisture(st, env, act, dt, sweatRate);
 
     // —— 饱食、水分 ——
     const effort = walking ? act.effort : 0;
     const baseK = sleeping ? 0.65 : 1; // 睡眠时代谢较低
-    b.food -= (0.024 * baseK + effort * 0.048 + shiver * 0.11) * dt * difficulty.foodDrain;
-    b.water -= ((0.028 + (act.alt > 3000 ? 0.008 : 0)) * baseK + effort * 0.038 + b.sweating * 0.02) * dt * difficulty.waterDrain;
+    b.food -= (0.024 * baseK + effort * 0.048 + shiver * 0.11) * dt * difficulty.foodDrain * nutrition.foodDrain;
+    b.water -= ((0.028 + (act.alt > 3000 ? 0.008 : 0)) * baseK + effort * 0.038 + b.sweating * 0.02) * dt * difficulty.waterDrain * nutrition.waterDrain;
     b.food = clamp(b.food, 0, 100);
     b.water = clamp(b.water, 0, 100);
 
     // —— 体力 ——
     if (walking) {
-      let drain = 0.13 * act.effort * act.terrainStamina * act.load * m.staminaDrain * difficulty.staminaDrain;
+      let drain = 0.13 * act.effort * act.terrainStamina * act.load * m.staminaDrain * difficulty.staminaDrain * nutrition.staminaDrain;
       if (act.downhill && role.id === 'veteran') drain *= 1.35;
       if (b.altSick > 30) drain *= 1.12;
       if (b.sprain > 0) drain *= 1.3;
@@ -149,7 +141,7 @@ export function stepBody(st, env, act, minutes, role) {
       if (b.core < 35.5) regen *= 0.3;
       if (shiver > 0.5) regen *= 0.5;
       if (env.tentInfo && env.tentInfo.tentWind > env.tentInfo.rating * 0.7) regen *= 0.6;
-      b.stamina += regen * dt;
+      b.stamina += regen * dt * nutrition.restRecovery;
     }
     b.stamina = clamp(b.stamina, 0, 100);
 
@@ -181,25 +173,8 @@ export function stepBody(st, env, act, minutes, role) {
     b.health = clamp(b.health - harm * difficulty.damage, 0, healthCap);
     if (harm === 0 && b.core > 36 && b.food > 30 && b.water > 30 && !walking) b.health = clamp(b.health + 0.02 * dt, 0, healthCap);
 
-    // —— 压力 ——
-    let ds = 0;
-    const night = act.night ? 1 : 0;
-    ds += night * 0.018;
-    ds += act.severity * 0.05;
-    if (act.lost) ds += 0.11;
-    if (b.core < 35.5) ds += 0.05;
-    if (b.health < 50) ds += 0.03;
-    if (b.food < 20 || b.water < 20) ds += 0.02;
-    if (act.alone) ds += 0.004;
-    if (b.altSick > 40) ds += 0.01;
-    ds *= m.stressGain;
-    let relief = 0;
-    if (env.tentInfo && b.core > 36) relief += 0.035;
-    if (act.mode === 'rest' && !night) relief += 0.015 * (role.id === 'runner' ? 0.4 : 1);
-    if (act.companions > 0) relief += 0.02;
-    if (act.severity < 0.15 && !night) relief += 0.012;
-    if (act.signal && role.id === 'blogger' && !st.airplane) relief += 0.02;
-    b.stress = clamp(b.stress + (ds - relief) * dt, 0, 100);
+    // —— 压力：伤痛持续负担、恶化冲击与有质量的睡眠缓解 ——
+    stepStress(st, env, act, dt, role, nutrition);
 
     // —— 电量 ——
     const cold = env.T < -5 && !st.keepWarm ? 1 + (-env.T - 5) / 8 : env.T < -5 ? 1 + (-env.T - 5) / 30 : 1;
@@ -218,6 +193,7 @@ export function stepBody(st, env, act, minutes, role) {
       st.water.frozen += f;
     }
     if (st.thermos.l > 0) st.thermos.temp = Math.max(env.T, st.thermos.temp - (st.thermos.temp - env.T) * 0.0009 * dt);
+    stepFoodEffects(st, dt);
   }
   // 充电宝冻死机
   if (st.powerbank > 0 && env.T < -15 && !st.keepWarm && !env.tentInfo && Math.random() < 0.0007 * minutes) {

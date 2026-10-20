@@ -277,8 +277,8 @@ function buildBranch(def) {
   const wp = mainPath.waypoints.find((w) => w.id === def.fromWaypoint);
   const start = mainPath.pointAt(wp.s);
   const pts = [];
-  // 朝山脊南侧（路线右侧）下撤
-  let heading = Math.atan2(start.dx, -start.dz); // 垂直于主线，指向 +side
+  // 游戏相对左右侧；绝不是现实地理方位或道路复刻。
+  let heading = Math.atan2(start.dx, -start.dz) + (def.side === -1 ? Math.PI : 0);
   let x = start.x, z = start.z;
   const total = def.lengthKm / KM_PER_UNIT;
   for (let acc = 0; acc <= total + 2; acc += 2) {
@@ -288,7 +288,7 @@ function buildBranch(def) {
     z += Math.sin(h) * 2;
   }
   const path = new Path(def.id, pts);
-  // 采样主地形 → 平滑 → 单调下降
+  // 采样主地形 → 平滑 → 有界起伏，并锚定两端以防岔口产生断崖
   const raw = new Float32Array(path.n);
   for (let i = 0; i < path.n; i++) {
     raw[i] = mainHeight(path.x[i], path.z[i], mainPath.nearest(path.x[i], path.z[i]));
@@ -304,12 +304,13 @@ function buildBranch(def) {
     const t = i / (path.n - 1);
     // 与线性下降混合，保证可走；末端权重收敛到 1，确保真正落地到 endV。
     const linear = lerp(mainPath.elevAt(wp.s), endV, Math.pow(t, 0.8));
-    const mix = lerp(0.55, 1, smoothstep(0.65, 1, t));
+    const mix = Math.max(1 - smoothstep(0, 0.1, t), lerp(0.55, 1, smoothstep(0.65, 1, t)));
     let v = lerp(sum / c, linear, mix);
-    if (i > 0) v = Math.min(v, prev - 0.02);
+    if (def.undulations) v += (def.undulations / 25) * Math.sin(t * Math.PI * 8) * Math.sin(t * Math.PI);
+    else if (i > 0) v = Math.min(v, prev - 0.02);
     v = Math.max(v, endV);
     path.e[i] = v;
-    path.t[i] = 'forest';
+    path.t[i] = t < (def.forestAt || 0) ? 'stone' : def.terrain;
     prev = v;
   }
   path.buildGrid();
@@ -340,7 +341,7 @@ export function columnInfo(x, z) {
       const eb = b.elevAt(nb.s);
       const wb = 1 - smoothstep(2.2, 10, nb.d);
       h = lerp(h, eb + Math.max(0, nb.d - 2.2) * 0.55, wb);
-      if (nb.d < trailD) { trailD = nb.d; type = 'forest'; onBranch = true; }
+      if (nb.d < trailD) { trailD = nb.d; type = b.typeAt(nb.s); onBranch = true; }
     }
   }
   let ice = false;

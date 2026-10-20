@@ -4,6 +4,9 @@ import { makeQuestion, distribution } from '../src/analytics/polls.js';
 import { EVENTS } from '../src/data/events.js';
 import { EXPANDED_EVENTS } from '../src/data/events-expanded.js';
 import { REPORTED_EVENTS } from '../src/data/events-reported.js';
+import { RANDOM_EVENTS } from '../src/data/events-random.js';
+import { STRESS_EVENTS } from '../src/data/events-stress.js';
+import { EXIT_EVENTS } from '../src/data/events-exits.js';
 import { NPCS } from '../src/data/npcs.js';
 import { ITEMS } from '../src/data/items.js';
 import { EVENT_IDS, NPC_IDS, ITEM_CATEGORIES, QUESTION_OPTIONS } from '../server/analytics-catalog.js';
@@ -25,13 +28,15 @@ test('display percentages total 100 without inventing zero-sample certainty', ()
   assert.equal(distribution(q,{questionId:q.questionId,total:4,counts:{run:1,back:1,shout:1}}),null);
 });
 test('backend catalog covers actual event/NPC choices and shop categories', () => {
-  const all=[...EVENTS,...EXPANDED_EVENTS,...REPORTED_EVENTS];
+  const all=[...EVENTS,...EXPANDED_EVENTS,...REPORTED_EVENTS,...RANDOM_EVENTS,...STRESS_EVENTS,...EXIT_EVENTS];
   for(const ev of all) {
     assert.ok(EVENT_IDS.has(ev.id),ev.id);
+    for (const id of ev.optionIds || []) assert.ok(QUESTION_OPTIONS.get(`event:${ev.id}`)?.has(id), `${ev.id}:${id}`);
     for(const [,id] of ev.run.toString().matchAll(/\bid:\s*'([a-z0-9_]+)'/g)) assert.ok(QUESTION_OPTIONS.get(`event:${ev.id}`)?.has(id),`${ev.id}:${id}`);
   }
   for(const npc of NPCS) {
     assert.ok(NPC_IDS.has(npc.id),npc.id);
+    for (const id of npc.optionIds || []) assert.ok(QUESTION_OPTIONS.get(`npc:${npc.id}`)?.has(id), `${npc.id}:${id}`);
     for(const [,id] of npc.meet.toString().matchAll(/\bid:\s*'([a-z0-9_]+)'/g)) assert.ok(QUESTION_OPTIONS.get(`npc:${npc.id}`)?.has(id),`${npc.id}:${id}`);
   }
   for(const [id,it] of Object.entries(ITEMS)) assert.equal(ITEM_CATEGORIES[id],it.cat,`shop ${id}`);

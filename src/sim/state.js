@@ -4,6 +4,8 @@ import { ITEMS } from '../data/items.js';
 import { makeSchedule, START_TIME } from './weather.js';
 import { ensureStoryState } from './stories.js';
 import { difficultyProfile } from './difficulty.js';
+import { ensureClothes, selectedClothes } from './clothes.js';
+import { ensurePsychology } from './stress.js';
 
 export function createState(roleId, difficulty = 'easy') {
   const role = roleById(roleId);
@@ -29,6 +31,7 @@ export function createState(roleId, difficulty = 'easy') {
     airplane: false,
     gpsOn: false,
     lampOn: false,
+    lampMode: 'auto',
     keepWarm: !!role.mods.keepWarmElectronics,
     body: {
       core: 37.0, stamina: 100, food: 85, water: 80, stress: role.id === 'student' ? 22 : 12,
@@ -56,6 +59,8 @@ export function createState(roleId, difficulty = 'easy') {
   };
   for (const [id, n] of Object.entries(role.inv)) addItem(st, id, n);
   ensureStoryState(st);
+  ensureClothes(st);
+  ensurePsychology(st);
   return st;
 }
 
@@ -119,29 +124,13 @@ export function packItem(st) {
   return best;
 }
 
-// 每个槽位穿着的最佳衣物
-export function wornItems(st) {
-  const best = {};
-  for (const id of Object.keys(st.inv)) {
-    const it = ITEMS[id];
-    if (!it || it.kind !== 'cloth') continue;
-    const cur = best[it.slot];
-    const score = (x) => (x.clo || 0) + (x.windproof || 0) + (x.waterproof || 0) * 0.5 + (x.grip || 0) * 0.3 + (x.wetKeep || 0) * 0.2;
-    if (!cur || score(it) > score(ITEMS[cur])) best[it.slot] = id;
-  }
-  return best;
-}
+// 沿用返回所选保暖层的旧接口；是否穿上仍由wearInsul控制。
+export function wornItems(st) { return selectedClothes(st); }
 
-export function tentItem(st) {
-  if (has(st, 'tent_alpine')) return 'tent_alpine';
-  if (has(st, 'tent_light')) return 'tent_light';
-  return null;
+function bestCampingItem(st, kind, score) {
+  return Object.keys(st.inv || {}).filter(id => has(st, id) && ITEMS[id]?.kind === kind)
+    .sort((a, b) => score(ITEMS[b]) - score(ITEMS[a]) || a.localeCompare(b))[0] || null;
 }
-export function bagItem(st) {
-  for (const id of ['bag_winter', 'bag_3s', 'bag_summer']) if (has(st, id)) return id;
-  return null;
-}
-export function padItem(st) {
-  for (const id of ['pad_air', 'pad_foam']) if (has(st, id)) return id;
-  return null;
-}
+export function tentItem(st) { return bestCampingItem(st, 'tent', it => it.windRating * 2 + it.warmth); }
+export function bagItem(st) { return bestCampingItem(st, 'bag', it => -it.comfort); }
+export function padItem(st) { return bestCampingItem(st, 'pad', it => it.r); }

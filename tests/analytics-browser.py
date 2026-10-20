@@ -1,8 +1,9 @@
 """Analytics choice-distribution browser acceptance test.
 
 Run against the already managed DEV server, for example through with_server.py.
-The test intentionally does not start a server and does not await the whole
-scheduled event from page.evaluate: the event itself waits for the dialog.
+A clean first visit defaults on; the test opts out through the UI before its
+GET-only choice-distribution scenario. It never starts a server and does not
+await the whole scheduled event from page.evaluate: the event waits for dialog.
 """
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 URL = os.environ.get("AOTAI_TEST_URL", "http://127.0.0.1:53741")
+_TARGET = urlparse(URL)
+if _TARGET.scheme != "http" or _TARGET.hostname not in {"127.0.0.1", "localhost", "::1"}:
+    raise SystemExit(f"Refusing analytics browser target outside loopback: {URL}")
 OUT = Path("output/playwright")
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -114,8 +118,12 @@ def main() -> None:
         page.goto(URL)
         page.wait_for_load_state("networkidle")
         page.wait_for_selector("#boot.gone", timeout=45000)
+        expect(page.locator('[data-act="privacy"]')).to_have_attribute("aria-pressed", "true")
+        assert page.evaluate("localStorage.getItem('aotai-analytics-consent-v1')") == "true"
+        page.locator('[data-act="privacy"]').click()
         expect(page.locator('[data-act="privacy"]')).to_have_attribute("aria-pressed", "false")
-        assert page.evaluate("localStorage.getItem('aotai-analytics-consent-v1')") is None
+        assert page.evaluate("localStorage.getItem('aotai-analytics-consent-v1')") == "false"
+        assert page.evaluate("localStorage.getItem('aotai-analytics-visitor-v1')") is None
         page.locator('[data-act="new"]').click()
         page.locator('.role[data-id="nurse"]').click()
         page.locator('[data-act="go"]').click()
@@ -252,6 +260,16 @@ def main() -> None:
         retry_body = choice_calls[-1]["body"]
         assert retry_body["runId"] == run_id and retry_body["optionId"] == "fix", retry_body
         assert len({entry["body"]["runId"] for entry in choice_calls if entry["method"] == "POST"}) == 1
+        # Only the actual ten-minute repair may drain the ambient-driven lamp.
+        expected_battery = page.evaluate("""async () => {
+            const {computeEnv} = await import('/src/sim/body.js');
+            const {updateLamp} = await import('/src/sim/lighting.js');
+            const g = __game, copy = structuredClone(g.st);
+            const env = computeEnv(copy, g.ctx());
+            const lamp = updateLamp(copy, {sunEl:g.sunEl(), wx:g.wx(), terrain:g.here().type});
+            const cold = env.T < -5 ? 1 + (-env.T - 5) / (copy.keepWarm ? 30 : 8) : 1;
+            return Math.max(0, copy.bat.headlamp - (lamp.on ? 0.2 * cold * 10 : 0));
+        }""")
         page.locator('[data-act="poll-continue"]').click()
         page.wait_for_function("!__game.eventRunning && !document.querySelector('#dialog.open')", timeout=10000)
         settled = page.evaluate(
@@ -263,17 +281,18 @@ def main() -> None:
             })"""
         )
         assert settled["time"] == before["time"] + 10, settled
-        assert settled["headlamp"] == before["headlamp"]
+        assert abs(settled["headlamp"] - expected_battery) < 1e-7, (settled, expected_battery)
         assert settled["fault"] is False and settled["resolved"] is True, settled
         page.wait_for_timeout(500)
         assert page.evaluate("__game.st.time") == settled["time"]
+        assert page.evaluate("__game.st.bat.headlamp") == settled["headlamp"]
 
         assert page.evaluate("JSON.parse(localStorage.getItem('aotai-save-v1')).telemetry.runId") == run_id
         expect(page.locator('[data-act="menu"]')).to_be_visible()
         page.locator('[data-act="menu"]').click()
         page.locator('[data-act="privacy"]').click()
         page.wait_for_function(
-            """() => !localStorage.getItem('aotai-analytics-consent-v1') &&
+            """() => localStorage.getItem('aotai-analytics-consent-v1') === 'false' &&
                 !localStorage.getItem('aotai-analytics-visitor-v1') &&
                 !localStorage.getItem('aotai-analytics-queue-v1')"""
         )

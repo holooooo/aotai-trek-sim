@@ -156,12 +156,14 @@ export const EVENTS = [
         ],
       });
       if (c === 'strip') {
-        g.st.wearInsul = false;
+        await g.removeOuterClothing();
+        if (g.over) return;
         g.st.flags.stripped = true;
         g.st.body.core -= 0.6;
         g.toast('冷风灌进了你的身体。你却觉得很舒服。', 'danger', 5000);
       } else {
-        g.st.wearInsul = g.hasInsul();
+        await g.setInsulation(true);
+        if (g.over) return;
         g.st.flags.blanketOn = g.hasItem('blanket');
         g.toast('你逼自己清醒过来。这是失温的"反常脱衣"——很多遇难者被发现时衣衫不整。', 'warn', 6000);
       }

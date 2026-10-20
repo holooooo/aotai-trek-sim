@@ -11,7 +11,7 @@ export const ENDING_LIST = [
   { id: 'retreat_wild', name: '半途下山' },
   { id: 'turnback', name: '及时回头' },
   { id: 'retreat', name: '原路下撤' },
-  { id: 'retreat_branch', name: '南坡下撤' },
+  { id: 'retreat_branch', name: '支线下撤' },
   { id: 'rescued', name: '获救' },
   { id: 'cross', name: '穿越完成' },
   { id: 'dayehai', name: '不必登顶' },

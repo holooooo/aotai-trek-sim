@@ -43,7 +43,8 @@ export const REPORTED_EVENTS = [
       });
       if (c === 'shelter') return g.beginCamp();
       if (c === 'layer') {
-        g.st.wearInsul = true;
+        await g.setInsulation(true);
+        if (g.over) return;
         if (!await g.eventPause(10)) return;
         g.addStress(-3);
         g.toast('你穿好保暖层。继续走前还需评估出汗与天气，衣物不是免险保证。', 'info');

@@ -90,7 +90,7 @@ function startTrek(st, fresh) {
   analytics.beginRun(st, { fresh });
   void analytics.flush();
   ui.closeScreen();
-  game.start(st);
+  game.start(st, { fresh });
   if (fresh) {
     game.toast(mobile
       ? '拖动左下摇杆移动 · 右侧划动转视角'

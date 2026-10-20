@@ -3,7 +3,7 @@ import { mainPath, branches } from '../world/terrain.js';
 import { voxToAlt } from '../data/route.js';
 
 export function canFreeDescent(st) {
-  return st.maxS >= branches.hetaoping.fromS || !!st.visited?.c2800 || st.path === 'hetaoping';
+  return Object.values(branches).some(b => st.maxS >= b.fromS || st.path === b.id) || !!st.visited?.c2800;
 }
 
 export function villagePosition(pos) {
@@ -19,6 +19,12 @@ export function travelEnding(st, pos, { falling = false, groundY = pos.y } = {})
     if ((st.stats?.walked || 0) > 7 && Math.hypot(v.along + 6, v.side - 4.5) < 10) st.flags.passedHomeStall = true;
     if (st.flags.passedHomeStall && v.along < -22 && Math.abs(v.side) < 32) return 'sigma';
   }
-  if (canFreeDescent(st) && voxToAlt(groundY) < 1600) return st.path === 'hetaoping' && !st.flags.freeDescent ? 'retreat_branch' : 'retreat_wild';
+  const branch = branches[st.path];
+  if (branch && !st.flags.freeDescent) {
+    // 走完游戏连接、到达接触点才结算；不是一降到某个海拔就自动获救。
+    const end = branch.pointAt(branch.length);
+    return st.s >= branch.length - 6 && Math.hypot(pos.x - end.x, pos.z - end.z) <= 8 ? 'retreat_branch' : null;
+  }
+  if (canFreeDescent(st) && voxToAlt(groundY) < 1600) return 'retreat_wild';
   return null;
 }

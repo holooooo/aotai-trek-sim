@@ -125,7 +125,8 @@ export const EXPANDED_EVENTS = [
         if (g.st.warmers < 1) return; g.useWarmer();
         if (!await g.eventPause(4)) return; mark(g, 'handsProtected');
       } else if (c === 'insulate') {
-        if (!g.hasInsul()) return; g.autoWalk = false; g.st.wearInsul = true;
+        if (!g.hasInsul()) return; g.autoWalk = false; await g.setInsulation(true);
+        if (g.over) return;
         if (!await g.eventPause(6)) return; mark(g, 'handsProtected');
       } else { g.changeBody('stress', 4); mark(g, 'handsDelayed'); }
     },

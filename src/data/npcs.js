@@ -1,6 +1,8 @@
 // 路遇驴友。人物均为化名或虚构，情节改编自公开报道与"神秘园"系列视频讲述的事件，仅用于安全警示。
 // 每个 NPC 的 meet(g, npc) 是一段异步剧情，g 为游戏接口（见 sim/game.js 中的 NpcApi）。
 
+import { EXTRA_NPCS } from './npcs-extra.js';
+
 export const NPCS = [
   {
     id: 'speedteam',
@@ -145,7 +147,7 @@ export const NPCS = [
         ],
       });
       if (c === 'ask') {
-        await g.say('小牟', [`"${forecast}"`, '"实在不行就到2800营地往南坡下，那边有林子，能挡风。千万别在山梁上硬扛。"'], '记下了');
+        await g.say('小牟', [`"${forecast}"`, '"游戏地图把它标成核桃坪事故参考支线，但那只是虚构连接。别把发现位置当成固定出口；真遇到危险，先按现实救援规则处理。"'], '记下了');
         g.flags.knowsBailout = true;
         return npc.def.meetAgain(g, npc);
       }
@@ -450,6 +452,7 @@ export const NPCS = [
       g.despawn(npc.id, false);
     },
   },
+  ...EXTRA_NPCS,
 ];
 
 export const npcById = (id) => NPCS.find((n) => n.id === id);

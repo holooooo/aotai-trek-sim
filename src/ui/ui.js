@@ -1,15 +1,18 @@
 import { distribution } from '../analytics/polls.js';
 // DOM 界面：标题、角色、商店、HUD、弹窗、背包、地图、营地、结局、事故档案。
 import { ROLES, roleById } from '../data/roles.js';
-import { ITEMS, CATEGORIES, SHOP_ORDER, SLOTS, SLOT_NAMES } from '../data/items.js';
+import { ITEMS, CATEGORIES, SHOP_ORDER, SLOT_NAMES } from '../data/items.js';
 import { ARCHIVE, LESSONS } from '../data/archive.js';
 import { ENDINGS, EPILOGUES, SLOGAN } from '../data/endings.js';
 import { WAYPOINTS, BRANCHES } from '../data/route.js';
 import { npcById } from '../data/npcs.js';
-import { createState, addItem, removeItem, has, packWeight, packCapacity, wornItems } from '../sim/state.js';
-import { profileSVG } from './profile.js';
+import { createState, addItem, removeItem, has, packWeight, packCapacity } from '../sim/state.js';
+import { isClothWorn, garmentWetness, dryableClothes, canDryClothes } from '../sim/clothes.js';
+import { routeMapSVG } from './map-renderer.js';
 import { DIFFICULTIES, difficultyProfile } from '../sim/difficulty.js';
 import { fmtClock, fmtDateTime } from '../sim/game.js';
+import { foodEffectSummary, activeFoodEffects } from '../sim/nutrition.js';
+import { ensureLampMode } from '../sim/lighting.js';
 import { icon, WEATHER_ICON } from './icons.js';
 import { loadRecords, clearRecords, summarize, ENDING_LIST, EPILOGUE_LIST } from '../sim/records.js';
 
@@ -105,7 +108,7 @@ export class UI {
   }
 
   privacyControls() {
-    return `<div class="privacy-controls"><p>可选匿名统计：随机浏览器编号，汇总游玩、道具、事件与结局；应用不保存姓名、IP或精确位置。Cloudflare处理基础网络连接信息。关闭后停止上报并清除本机标识与队列，已汇总计数不回退。比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '参与匿名统计（默认关闭）'}</button></div>`;
+    return `<div class="privacy-controls"><p>匿名统计默认开启，使用随机浏览器编号汇总游玩、道具、事件与结局；应用不保存姓名、IP或精确位置。Cloudflare处理基础网络连接信息。你可随时关闭；关闭后停止上报并清除本机标识与队列，旧本地历史不会补报。选择比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '匿名统计已关闭 · 点击开启'}</button></div>`;
   }
 
   showTitle({ hasSave }) {
@@ -759,9 +762,9 @@ export class UI {
     if (!st) return;
     const prevScroll = keepScroll ? this.el.sheet.querySelector('.drawer-body')?.scrollTop : 0;
     const b = st.body;
-    const worn = wornItems(st);
+    const clothIds = Object.keys(st.inv).filter((id) => ITEMS[id]?.kind === 'cloth' && st.inv[id] > 0);
     const w = packWeight(st), cap = packCapacity(st);
-    const foods = ['selfheat', 'noodle', 'biscuit', 'jerky', 'chocolate', 'bar', 'gel', 'glucose', 'baijiu'].filter((id) => has(st, id));
+    const foods = Object.keys(ITEMS).filter((id) => ITEMS[id].kind === 'food' && has(st, id));
     const canCook = has(st, 'stove') && has(st, 'pot');
     const gasN = st.gas.normal + st.gas.alpine;
     const stat = (k, v, cls = '') => `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
@@ -769,9 +772,17 @@ export class UI {
     const sig = g.signal();
     const devRow = (name, sub, btns) => `<div class="row"><div class="l"><b>${name}</b><small>${sub}</small></div><div class="r">${btns}</div></div>`;
     const effects = st.story?.effects || {};
+    const foodEffects = activeFoodEffects(st);
     const activeEffects = [effects.headlampFault && '头灯接触不良：夜间有效照明降低', effects.tentLeak && '帐篷漏风：帐内保暖下降', effects.navigationCheckedUntil > st.time && '已核对导航：暂时减小雾中漂移', effects.runnerPaceUntil > st.time && '调整配速：速度降低、运动强度降低', effects.sharedLoadUntil > st.time && '同行协作：队形速度暂时改善'].filter(Boolean);
+    const lampMode = ensureLampMode(st);
+    const foodDescription = (id) => {
+      const item = ITEMS[id];
+      const base = item.needsHot ? (st.thermos.l >= 0.3 && st.thermos.temp > 50 ? '可用保温杯热水冲泡' : '没有热水，只能干嚼') : item.alcohol ? '酒精会增加失温风险' : `饱食 +${item.food || 0}`;
+      return [base, foodEffectSummary(id)].filter(Boolean).join(' · ');
+    };
     const body = `
-      ${activeEffects.length ? `<div class="sec"><h4>路途状态</h4><ul>${activeEffects.map((v) => `<li>${esc(v)}</li>`).join('')}</ul>
+      ${activeEffects.length || foodEffects.length ? `<div class="sec"><h4>路途状态</h4>${activeEffects.length ? `<ul>${activeEffects.map((v) => `<li>${esc(v)}</li>`).join('')}</ul>` : ''}
+         ${foodEffects.length ? `<div class="food-effects"><span class="effect-label">食物效果</span>${foodEffects.map((effect) => `<span class="effect-chip" data-effect="${esc(effect.id)}">${esc(effect.label)} · ${effect.minutes}分钟</span>`).join('')}</div>` : ''}
         ${effects.headlampFault ? '<button class="sbtn" data-act="repair" data-id="headlamp_contact">检查头灯触点</button>' : ''}
         ${effects.tentLeak && st.camp?.inside ? '<button class="sbtn" data-act="repair" data-id="windproof_lash">修补帐布裂口</button>' : ''}</div>` : ''}
       ${st.rescue?.self ? `<div class="sec"><h4>救援联络</h4>${devRow('重新报告当前位置', st.rescue.moved ? '你已离开报告点；联系成功才更新坐标。' : '必要转移时保持联系；更新不等于救援已到达。', `<button class="sbtn" data-act="rescueUpdate" ${g.comms().any ? '' : 'disabled'}>更新坐标</button>`)}</div>` : ''}
@@ -782,28 +793,33 @@ export class UI {
           ${stat('衣物潮湿', Math.round(b.wet) + '%', b.wet > 50 ? 'warn-text' : '')}
           ${stat('压力', Math.round(b.stress), b.stress > 75 ? 'danger-text' : '')}
         </div>
-        <div style="margin-top:8px;font-size:13px;color:var(--muted)">${injuries.length ? '伤病：' + injuries.join('、') : '没有明显伤病。'}</div>
+        <div class="pressure-tip">压力提示：温暖睡眠、吃饱且有水时睡眠更能缓解；美味食物可缓压。伤痛、低温、饥渴、低体力会持续增压，骨折恶化可能带来一次冲击。</div>
         ${devRow('急救包', `剩 ${st.inv.firstaid || 0} 个${g.role.mods.firstAid >= 1 ? ' · 护士处理效果翻倍' : ''}`, `<button class="sbtn" data-act="aid" ${has(st, 'firstaid') ? '' : 'disabled'}>处理伤口</button>`)}
         ${devRow('暖宝宝', st.warmerLeft > 0 ? `正在发热，还剩约 ${Math.round(st.warmerLeft / 60)} 小时 · 剩 ${st.warmers} 片` : `剩 ${st.warmers} 片`, `<button class="sbtn" data-act="warmer" ${st.warmers > 0 ? '' : 'disabled'}>贴一片</button>`)}
       </div>
-      <div class="sec"><h4>穿着</h4>
-        ${devRow('保暖层', worn.insul ? `${ITEMS[worn.insul].name} · ${st.wearInsul ? '穿着' : '收在包里'}` : '没有保暖层', worn.insul ? `<button class="sbtn ${st.wearInsul ? 'on' : ''}" data-act="insul">${st.wearInsul ? '脱下' : '穿上'}</button>` : '')}
-        <div style="font-size:12px;color:var(--muted);margin:4px 0 6px">停下来就穿，走起来就脱。走路时穿着会出汗，汗湿的衣服不保暖。</div>
-        ${SLOTS.filter((s) => s !== 'insul').map((s) => `<div class="row"><div class="l"><small>${SLOT_NAMES[s]}</small><b>${worn[s] ? esc(ITEMS[worn[s]].name) : '<span style="color:#ff8b8d">无</span>'}</b></div></div>`).join('')}
+      <div class="sec clothing-sec"><h4>穿着 <em>${clothIds.length} 件</em></h4>
+                 ${clothIds.length ? clothIds.map((id) => {
+           const item = ITEMS[id];
+           const wornNow = isClothWorn(st, id);
+           const wet = Math.round(garmentWetness(st, id));
+           const wetClass = wet >= 60 ? 'wet-high' : wet >= 25 ? 'wet-mid' : '';
+           return devRow(`${esc(item.name)} <span class="slot-tag">${esc(SLOT_NAMES[item.slot] || item.slot)}</span>`, `${wornNow ? '穿着中' : '收在包里'} · 湿度 <span class="${wetClass}">${wet}%</span>`, `<button class="sbtn ${wornNow ? 'on' : 'alt'}" data-act="clothing" data-id="${esc(id)}">${wornNow ? '脱下' : '穿上'}</button>`);
+         }).join('') : '<div class="empty-note">没有可穿的衣物。</div>'}
+        <div style="font-size:12px;color:var(--muted);margin:4px 0 6px">衣物可按件换穿；脱下后仍留在背包。行走会出汗，湿衣保暖效果较差。</div>
       </div>
       <div class="sec"><h4>饮水 <em>${gasN > 0 ? `气罐 ${st.gas.alpine ? '高山' + st.gas.alpine : ''}${st.gas.alpine && st.gas.normal ? ' / ' : ''}${st.gas.normal ? '普通' + st.gas.normal : ''} 次` : '无气罐'}</em></h4>
         ${has(st, 'thermos') ? devRow('保温杯', `${st.thermos.l.toFixed(2)} L · ${st.thermos.l > 0.04 ? Math.round(st.thermos.temp) + '℃' : '空'}`, `<button class="sbtn" data-act="thermos" ${st.thermos.l > 0.04 ? '' : 'disabled'}>喝一口</button>`) : ''}
         ${devRow('水瓶', `液态 ${st.water.liquid.toFixed(2)} L · 结冰 ${st.water.frozen.toFixed(2)} L`, `<button class="sbtn" data-act="water" ${st.water.liquid > 0.04 ? '' : 'disabled'}>喝一口</button>`)}
-        ${devRow('烧雪化水', canCook ? (gasN > 0 ? '约15分钟，耗一次气。灌进保温杯或直接喝。' : '没有气罐了') : '需要炉头和锅', `<button class="sbtn" data-act="cook" ${canCook && gasN > 0 ? '' : 'disabled'}>烧水</button>`)}
+        ${devRow('烧雪化水', canCook ? (gasN > 0 ? '帐外烧水 · 约15分钟，耗一次气。灌进保温杯或直接喝。' : '没有气罐了') : '需要炉头和锅 · 帐外操作', `<button class="sbtn" data-act="cook" ${canCook && gasN > 0 ? '' : 'disabled'}>烧水</button>`)}
         ${devRow('吃雪', '解渴很少，消耗体温', '<button class="sbtn alt" data-act="snow">吃雪</button>')}
       </div>
       <div class="sec"><h4>食物 <em>饱食 ${Math.round(b.food)}</em></h4>
-        ${foods.length ? foods.map((id) => devRow(`${esc(ITEMS[id].name)} ×${st.inv[id]}`, esc(ITEMS[id].needsHot ? (st.thermos.l >= 0.3 && st.thermos.temp > 50 ? '用保温杯热水泡' : '没有热水，只能干嚼') : ITEMS[id].alcohol ? '……真的要喝吗？' : `饱食 +${ITEMS[id].food}`), `<button class="sbtn" data-act="eat" data-id="${id}">吃</button>`)).join('') : '<div style="color:#ff8b8d">没有食物了。</div>'}
+        ${foods.length ? foods.map((id) => devRow(`${esc(ITEMS[id].name)} ×${st.inv[id]}`, esc(foodDescription(id)), `<button class="sbtn" data-act="eat" data-id="${id}">吃</button>`)).join('') : '<div class="empty-note">没有食物了。</div>'}
       </div>
       <div class="sec"><h4>设备</h4>
         ${devRow('手机', `电量 ${Math.round(st.bat.phone)}% · ${st.airplane ? '飞行模式' : sig ? '有信号' : '无信号'}`, `<button class="sbtn ${st.airplane ? 'on' : 'alt'}" data-act="air">${st.airplane ? '关飞行' : '开飞行'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="phone">充电</button>' : ''}`)}
         ${has(st, 'gps') ? devRow('手持GPS', `电量 ${Math.round(st.bat.gps)}% · ${st.gpsOn ? '开启' : '关闭'}`, `<button class="sbtn ${st.gpsOn ? 'on' : 'alt'}" data-act="gps">${st.gpsOn ? '关闭' : '打开'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="gps">充电</button>' : ''}`) : ''}
-        ${has(st, 'headlamp') ? devRow('头灯', `电量 ${Math.round(st.bat.headlamp)}% · ${st.lampOn ? '开' : '关'}`, `<button class="sbtn ${st.lampOn ? 'on' : 'alt'}" data-act="lamp">${st.lampOn ? '关灯' : '开灯'}</button>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="headlamp">充电</button>' : ''}`) : ''}
+        ${has(st, 'headlamp') ? devRow('头灯', `电量 ${Math.round(st.bat.headlamp)}% · ${st.lampOn ? '当前亮' : '当前灭'} · ${lampMode === 'auto' ? '自动' : lampMode === 'on' ? '常亮' : '关闭'}`, `<div class="mode-buttons" role="group" aria-label="头灯模式">${[['auto', '自动'], ['on', '常亮'], ['off', '关闭']].map(([mode, label]) => `<button class="sbtn ${lampMode === mode ? 'on' : 'alt'}" data-act="lampMode" data-mode="${mode}" aria-pressed="${lampMode === mode}">${label}</button>`).join('')}</div>${st.powerbank > 0 ? '<button class="sbtn alt" data-act="charge" data-id="headlamp">充电</button>' : ''}`) : ''}
         ${has(st, 'satcomm') ? devRow('北斗卫星通讯器', `电量 ${Math.round(st.bat.satcomm)}% · 无信号也能求救`, '') : ''}
         ${devRow('充电宝', st.powerbank > 0 ? `还能充 ${st.powerbank} 次` : '没有了', '')}
         ${devRow('贴身保暖', '把手机、充电宝、气罐揣在怀里，减缓低温掉电和气罐失效', `<button class="sbtn ${st.keepWarm ? 'on' : 'alt'}" data-act="warm">${st.keepWarm ? '已贴身' : '揣进怀里'}</button>`)}
@@ -821,7 +837,7 @@ export class UI {
       rescueUpdate: () => { g.updateRescuePosition(); re(); },
       aid: () => { g.useFirstAid(); re(); },
       warmer: () => { g.useWarmer(); re(); },
-      insul: () => { st.wearInsul = !st.wearInsul; this.toast(st.wearInsul ? '你穿上了保暖层。' : '你脱下了保暖层，塞回包里。', 'info'); re(); },
+      clothing: async (d) => { if (typeof g.equipClothing === 'function') await g.equipClothing(d.id); re(); },
       thermos: () => { g.drinkThermos(); re(); },
       water: () => { g.drinkWater(); re(); },
       snow: () => { g.eatSnow(); re(); },
@@ -829,39 +845,59 @@ export class UI {
       eat: (d) => { g.eat(d.id); re(); },
       air: () => { st.airplane = !st.airplane; re(); },
       gps: () => { st.gpsOn = !st.gpsOn && st.bat.gps > 0; re(); },
-      lamp: () => { st.lampOn = !st.lampOn && st.bat.headlamp > 0; re(); },
+      lampMode: (d) => { if (typeof g.setLampMode === 'function') g.setLampMode(d.mode); else st.lampMode = ['auto', 'on', 'off'].includes(d.mode) ? d.mode : 'auto'; re(); },
       charge: (d) => { g.charge(d.id); re(); },
       warm: () => { st.keepWarm = !st.keepWarm; re(); },
       care: (d) => { g.careNpc(d.id, d.w); re(); },
     });
   }
 
-  openMap() {
+  openMap(mode = 'satellite', scope = 'nearby', scrollTop = 0) {
     const g = this.game, st = g.st;
     if (!st) return;
-    const wps = WAYPOINTS.map((w) => ({ ...w, visited: !!st.visited[w.id] }));
-    const br = BRANCHES.hetaoping;
-    const from = WAYPOINTS.find((w) => w.id === br.fromWaypoint);
-    const onBranch = st.path !== 'main';
-    const curKm = onBranch ? from.km : st.s * 0.04;
-    const svg = profileSVG({
-      waypoints: wps,
-      branch: { name: br.name, fromKm: from.km, lengthKm: br.lengthKm, startAlt: from.alt, endAlt: br.endAlt, endName: br.endName },
-      currentKm: curKm, maxKm: st.maxS * 0.04, onBranch, branchKm: onBranch ? st.s * 0.04 : 0, dir: st.dir,
-    });
-    const notes = (w) => [w.camp && '营地', w.water && '水源', w.signal && (w.signal > 1 ? '信号好' : '弱信号'), w.bailout && '下撤点', w.end && '终点'].filter(Boolean).join(' · ');
-    const body = `
-      <div class="profile">${svg}</div>
-      <div class="sec"><h4>途经点 <em>海拔为近似值</em></h4><div class="wplist">
-        ${wps.map((w) => `<div class="row ${w.visited ? 'done' : ''}"><div class="l"><b>${esc(w.name)}</b><small>${esc(notes(w))}</small></div>
-          <div class="r mono" style="font-size:18px;color:var(--muted)">${w.km}km · ${w.alt}m</div></div>`).join('')}
-        <div class="row"><div class="l"><b style="color:var(--green)">${esc(br.name)}</b><small>${esc(br.desc)}</small></div><div class="r mono" style="font-size:18px;color:var(--muted)">${br.lengthKm}km</div></div>
-      </div></div>
-      <div class="sec"><h4>行程日志</h4><div class="loglist">
-        ${st.log.slice().reverse().map((l) => `<div><span class="t">${fmtDateTime(l.t)}</span>${esc(l.text)}</div>`).join('') || '<div>还没有记录。</div>'}
-      </div></div>`;
-    const el = this._sheet('map', '路线 · 高程', body, true);
-    this._bind(el, { close: () => this.closeSheet() });
+    const selectedMode = mode === 'elevation' ? 'elevation' : 'satellite';
+    const selectedScope = scope === 'all' ? 'all' : 'nearby';
+    const notes = (w) => [w.camp && '营地', w.water && '水源', w.signal && (w.signal > 1 ? '信号好' : '弱信号'), w.bailout && '下撤参考', w.end && '终点'].filter(Boolean).join(' · ');
+    const render = (nextMode, nextScope, keepScroll = 0) => {
+      const branchRows = Object.values(BRANCHES).map((branch) => {
+        const sourceLinks = (branch.sourceLinks || []).filter((source) => typeof source.url === 'string' && source.url.startsWith('https://'));
+        return `<details class="branch-reference"><summary><b>${esc(branch.name || '事故参考支线')}</b><small>${esc(branch.basis || '事故区域参考')} · ${Number.isFinite(branch.lengthKm) ? `${branch.lengthKm}km（游戏设定）` : '里程为游戏设定'}</small></summary>
+          <div class="branch-reference-body"><p>${esc(branch.desc || '')}</p><p><b>事实边界：</b>${esc(branch.warning || '仅供游戏叙事参考，不代表存在固定道路或安全出口。')}</p>
+            ${sourceLinks.length ? `<ul>${sourceLinks.map((source) => `<li><a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.label || '查看来源')}</a></li>`).join('')}</ul>` : ''}</div></details>`;
+      }).join('');
+      const wps = WAYPOINTS.map((w) => ({ ...w, visited: !!st.visited[w.id] }));
+      const waypointRows = wps.map((w) => `<div class="row ${w.visited ? 'done' : ''}"><div class="l"><b>${esc(w.name)}</b><small>${esc(notes(w))}</small></div><div class="r mono map-km">${w.km}km · ${w.alt}m</div></div>`).join('');
+      const svg = routeMapSVG(st, { mode: nextMode, scope: nextScope, width: 900, height: 650 });
+      const body = `
+        <div class="map-controls" role="group" aria-label="地图显示">
+          <div class="map-segment" role="group" aria-label="地图样式">
+            <button class="sbtn ${nextMode === 'satellite' ? 'on' : 'alt'}" data-act="mapMode" data-mode="satellite" aria-pressed="${nextMode === 'satellite'}">卫星式</button>
+            <button class="sbtn ${nextMode === 'elevation' ? 'on' : 'alt'}" data-act="mapMode" data-mode="elevation" aria-pressed="${nextMode === 'elevation'}">高程</button>
+          </div>
+          <div class="map-segment" role="group" aria-label="地图范围">
+            <button class="sbtn ${nextScope === 'nearby' ? 'on' : 'alt'}" data-act="mapScope" data-scope="nearby" aria-pressed="${nextScope === 'nearby'}">当前位置</button>
+            <button class="sbtn ${nextScope === 'all' ? 'on' : 'alt'}" data-act="mapScope" data-scope="all" aria-pressed="${nextScope === 'all'}">全线与支线</button>
+          </div>
+        </div>
+        <div class="route-map-frame">${svg}</div>
+        <p class="map-disclaimer">地图为游戏内地形示意，不是真实卫星影像或导航资料。虚线仅为事故参考·虚构支线，连接、方位和里程均为游戏设定，不代表现实道路或安全下撤通道。</p>
+        <div class="sec branch-list"><h4>事故参考·虚构下撤支线 <em>${Object.keys(BRANCHES).length}条</em></h4>
+          <p class="map-disclaimer">仅供游戏情节参考；事故搜救区域或原计划节点，不证明存在固定通道。展开查看来源与事实边界。</p>
+          ${branchRows || '<div class="empty-note">当前没有支线资料。</div>'}
+        </div>
+        <details class="map-waypoints"><summary>途经点资料 · ${wps.length}处（海拔与里程为近似游戏设定）</summary><div class="wplist">${waypointRows}</div></details>
+        <div class="sec"><h4>行程日志</h4><div class="loglist">
+          ${st.log.slice().reverse().map((l) => `<div><span class="t">${fmtDateTime(l.t)}</span>${esc(l.text)}</div>`).join('') || '<div>还没有记录。</div>'}
+        </div></div>`;
+      const el = this._sheet('map', '路线地图', body, true);
+      el.querySelector('.drawer-body').scrollTop = keepScroll;
+      this._bind(el, {
+        close: () => this.closeSheet(),
+        mapMode: (d) => render(d.mode, nextScope, el.querySelector('.drawer-body').scrollTop),
+        mapScope: (d) => render(nextMode, d.scope, el.querySelector('.drawer-body').scrollTop),
+      });
+    };
+    render(selectedMode, selectedScope, scrollTop);
   }
 
   openMenu() {
@@ -948,14 +984,18 @@ export class UI {
     box.className = 'campbox panel';
     box.id = 'campMenu';
     const g = this.game;
+    const canDry = info.canDry ?? canDryClothes(g.st);
+    const dryCount = canDry ? dryableClothes(g.st).length : 0;
     box.innerHTML = `
       <h4>${info.bivy ? '露宿' : '营地'} · ${esc(g.placeName())}
         ${info.tentHealth !== null ? `<span class="mono" style="font-size:18px;color:${info.tentHealth < 40 ? 'var(--red)' : 'var(--muted)'}">帐篷 ${info.tentHealth}%</span>` : ''}</h4>
       ${info.rescue !== null ? `<div class="tip" style="border-color:var(--orange)">搜救正在进行，抵达时间无法确认。保持体温，原地等待。</div>` : ''}
+       ${canDry ? `<div class="tip dry-tip">帐内只安全晾衣，不生明火。${dryCount ? `可晾 ${dryCount} 件未穿湿衣。` : '请先在背包脱下湿衣，并留足一层保暖衣。'}</div>` : ''}
       <div class="btns">
         <button class="btn primary" data-act="sleep">${info.night ? '睡到天亮' : '小睡两小时'}</button>
         <button class="btn" data-act="rest">休息1小时</button>
         <button class="btn" data-act="cook" ${info.canCook ? '' : 'disabled'}>烧水</button>
+         ${canDry ? `<button class="btn" data-act="dry" ${dryCount ? '' : 'disabled'}>晾干湿衣${dryCount ? ` · ${dryCount}件` : ''}</button>` : ''}
         <button class="btn" data-act="pack">背包</button>
         ${info.rescue !== null ? '<button class="btn" data-act="wait">等待救援</button>' : info.canSos ? '<button class="btn danger" data-act="sos">求救</button>' : ''}
         <button class="btn ghost" data-act="go">${info.bivy ? '起身出发' : '收帐篷出发'}</button>
@@ -966,9 +1006,10 @@ export class UI {
       rest: async () => { this.hideCampMenu(); await g.restFor(60); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
       cook: async () => { this.hideCampMenu(); await g.cook(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
       pack: () => this.openPack(),
-      sos: async () => { await g.sos({}); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+       sos: async () => { await g.sos({}); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
       wait: async () => { this.hideCampMenu(); await g.waitForRescue(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
-      go: () => g.packCamp(),
+      dry: async () => { this.hideCampMenu(); await g.dryClothes(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+       go: () => g.packCamp(),
     });
   }
 

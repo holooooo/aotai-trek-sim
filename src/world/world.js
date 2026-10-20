@@ -307,13 +307,10 @@ export class World {
     for (const b of Object.values(branches)) {
       const end = b.pointAt(b.length - 3);
       const q = off(end, -3, 0);
-      this._place(makeSign(b.def.endName, '有路了'), q.x, q.z, faceRot(end));
-      const h = off(end, 6, 4);
-      this._place(makeHouse(4, 4, 2.4, 0xb8a88a, 0x4a3a2e, { snowRoof: true, lit: true }), h.x, h.z, faceRot(end));
-      lit(null, h.x, h.z);
+      this._place(makeSign(`${b.def.name} · 游戏接触点`, '必须走完'), q.x, q.z, faceRot(end));
       const start = b.pointAt(10);
       const sq = off(start, 3, 0);
-      this._place(makeSign('南坡下撤', '→ 核桃坪', { bg: '#2e5e3e' }), sq.x, sq.z, faceRot(start));
+      this._place(makeSign(`进入${b.def.name}`, '虚构参考'), sq.x, sq.z, faceRot(start));
     }
     for (const o of this.landmarks) o.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
   }

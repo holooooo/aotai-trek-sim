@@ -21,7 +21,17 @@ POST 请求体最多 32 KiB，包括无 `Content-Length` 的流式请求。字�
 
 错误状态：`400` 字段/类型/标识无效，`403` 非同源写，`405` 方法不允许，`413` 超大请求，`415` 非 JSON，`429` 基本限流，`503` 未绑定数据库或数据库不可用。响应仅含稳定的 `{error: "code"}`，不会把内部 SQL 或提交内容回显给客户端。所有 API 响应使用 `Cache-Control: no-store`。
 
-客户端应默认关闭遥测，获得用户同意后才上传；本后端不将浏览器点击等同于已获同意。网络或服务不可用时客户端应返回空状态、稍后重试，不阻塞游戏。选择比例可只读 GET；若要统计本人的选择，应在玩家做出选择后 POST，再显示该题的汇总。API 本身不承担防剧透权限控制，公开 GET 可被直接访问。
+客户端对缺失 consent 的访客默认开启遥测；明确保存的 `false` 表示用户退出，重新开启后才上传。关闭会持久保存 `aotai-analytics-consent-v1=false`，并清除本机匿名编号与待发送队列；网络或服务不可用时客户端应返回空状态、稍后重试，不阻塞游戏。选择比例可只读 GET；若要统计本人的选择，应在玩家做出选择后 POST，再显示该题的汇总。API 本身不承担防剧透权限控制，公开 GET 可被直接访问。
+
+## 客户端本地状态
+
+| Key | 值 | 作用 |
+| --- | --- | --- |
+| `aotai-analytics-consent-v1` | `true` / `false` | 当前是否开启；缺失时初始化为 `true` |
+| `aotai-analytics-visitor-v1` | 随机 ID | 仅在开启时存在；关闭时删除 |
+| `aotai-analytics-queue-v1` | JSON 事件数组 | 仅在开启时存在；关闭时删除 |
+
+`false` 是持久退出标记，不能通过刷新或重新打开页面被默认开启逻辑覆盖。显式 `true` 保持开启；缺失 consent 时统一初始化为 `true`，不依据现存存档、游玩记录或其他偏好推断。
 
 ## POST /api/telemetry
 
@@ -143,7 +153,7 @@ SELECT * FROM analytics_role_difficulty;
 | unique_ending_unlocks | 每匿名设备不同主结局键的个数总和；dead按cause区分，重复同结局不新增 |
 | avg_unlocked_endings_per_device | unique_ending_unlocks / players；分母含尚未解锁任何结局的遥测设备；0分母返回NULL |
 
-`analytics_role_difficulty` 是低频作者视图，按小于原始事件的逐局表聚合；公共写请求/比例读取不会执行此视图。统计从此功能启用并获得同意后开始，不能代表发布前全部历史玩家；不得把本地历史记录自动补报成新开局。
+`analytics_role_difficulty` 是低频作者视图，按小于原始事件的逐局表聚合；公共写请求/比例读取不会执行此视图。统计只覆盖功能启用后产生且成功上报的活动，不代表发布前全部历史玩家；不得把本地历史记录自动补报成新开局。
 
 ## 基本防滥用与限制
 

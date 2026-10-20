@@ -2,10 +2,13 @@
 Artifacts: output/playwright/ (ignored by git). Requires Python Playwright + Chromium.
 """
 from pathlib import Path
-import json
+import json, os
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, expect
 
-URL = 'http://127.0.0.1:53741'
+URL = os.environ.get('AOTAI_TEST_URL', 'http://127.0.0.1:53741')
+if urlparse(URL).hostname not in {'127.0.0.1', 'localhost', '::1'}:
+    raise SystemExit('Refusing non-loopback browser fixture target')
 OUT = Path('output/playwright')
 OUT.mkdir(parents=True, exist_ok=True)
 

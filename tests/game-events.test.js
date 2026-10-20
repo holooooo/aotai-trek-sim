@@ -27,6 +27,9 @@ function fixture(role = 'nurse') {
   g.ui = { setBusy() {}, showCampMenu() {}, dialog: async () => 'cancel', toast() {}, flash() {}, hideCampMenu() {}, hideCampPlacer() {}, showHud() {}, showEnding: (v) => { g.result = v; } };
   g.toast = () => {}; g.save = Game.prototype.save;
   g.eventPause = async (minutes) => { g.st.time += minutes; return !g.over; };
+  g.skip = async minutes => { g.st.time += minutes; return null; };
+  g.ctx = () => ({ alt: 3500, hour: 10, day: 1, wx: { wind: 20, gust: 1, temp: -8, precip: 0.8 }, exposure: 1, inTent: false });
+  g.refreshHud = () => {};
   g.beginCamp = async () => { g.camped = true; };
   g.retreat = (kind) => { g.st.dir = kind === 'back' ? -1 : 1; };
   g.packCamp = async () => { g.st.camp = null; };

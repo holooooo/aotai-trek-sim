@@ -19,7 +19,7 @@ const EXTRA_FIELDS = Object.freeze({
   event_completed: ['eventId'],
   run_ended: ['ending', 'cause', 'death'],
 });
-const ROLE_IDS = new Set(['student', 'veteran', 'blogger', 'runner', 'nurse', 'coder']);
+const ROLE_IDS = new Set(['student', 'veteran', 'blogger', 'runner', 'nurse', 'coder', 'cook', 'geographer', 'porter', 'photographer']);
 const DIFFICULTY_IDS = new Set(['easy', 'normal', 'hardcore']);
 const ENDING_IDS = new Set(['sausage', 'sigma', 'retreat_wild', 'turnback', 'retreat', 'retreat_branch', 'rescued', 'cross', 'dayehai', 'dead']);
 const CAUSE_IDS = new Set(['hypothermia', 'fall', 'dehydration', 'starvation', 'injury', 'exhaustion']);
@@ -163,10 +163,16 @@ export class AnalyticsClient {
     this.flight = null;
     this.controllers = new Set();
     this.generation = 0;
-    this.enabledState = safeGet(this.storage, CONSENT_KEY) === 'true';
+    const savedConsent = safeGet(this.storage, CONSENT_KEY);
+    this.enabledState = savedConsent !== 'false';
     if (this.enabledState) {
+      safeSet(this.storage, CONSENT_KEY, 'true');
       this.visitorId = this._getOrCreateVisitor();
       this.queue = readQueue(this.storage);
+    } else {
+      safeSet(this.storage, CONSENT_KEY, 'false');
+      safeRemove(this.storage, VISITOR_KEY);
+      safeRemove(this.storage, QUEUE_KEY);
     }
   }
 
@@ -198,7 +204,7 @@ export class AnalyticsClient {
       this.flight = null;
       this.queue = [];
       this.visitorId = null;
-      safeRemove(this.storage, CONSENT_KEY);
+      safeSet(this.storage, CONSENT_KEY, 'false');
       safeRemove(this.storage, VISITOR_KEY);
       safeRemove(this.storage, QUEUE_KEY);
       return false;

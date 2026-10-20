@@ -142,6 +142,21 @@ def main() -> None:
     assert retry_telemetry == {"accepted": 0, "duplicates": 1}, (status, retry_telemetry)
     assert status == 200
 
+    # New catalog entries must pass the real local Functions/D1 boundary as well.
+    new_questions = {
+        "event:stress_checklist": ["sort", "read", "continue"],
+        "event:exit_diaoyutai_signal": ["call_out", "hold_position", "retrace"],
+        "npc:linqiao": ["photo", "trade", "leave"],
+    }
+    for source, options in new_questions.items():
+        question = source + ":" + "|".join(sorted(options))
+        result = request("/api/choices", "POST", {"visitorId": visitor, "runId": run_one,
+            "questionId": question, "optionIds": options, "optionId": options[0]})
+        assert result[0] == 200 and result[1]["recorded"] is True, result
+    expanded = {**telemetry_event, "id": event_id + "_cook", "runId": telemetry_run + "_cook", "role": "cook"}
+    result = request("/api/telemetry", "POST", {"visitorId": visitor, "events": [expanded]})
+    assert result == (200, {"accepted": 1, "duplicates": 0}), result
+
     print(
         "PASS: local HTTP choice baseline/first-vote idempotency/run isolation, "
         "validation and same-origin rejection, telemetry retry idempotency; "

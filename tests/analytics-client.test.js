@@ -22,21 +22,21 @@ function enabledClient(fetcher, options = {}) {
   return { client, storage };
 }
 
-test('默认关闭，不生成visitor、不入队且track无副作用', () => {
+test('consent缺失时默认开启并持久化true', () => {
   const storage = new MemoryStorage();
   const calls = [];
   const client = new AnalyticsClient({ storage, fetcher: (...args) => { calls.push(args); } });
   const st = state();
-  assert.equal(client.enabled, false);
-  assert.equal(client.track('shop_buy', st, { itemId: 'water', quantity: 1, cost: 2 }), null);
-  assert.equal(client.beginRun(st, { fresh: true }), null);
-  assert.equal(st.telemetry, undefined);
-  assert.equal(client.flush() instanceof Promise, true);
-  assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.VISITOR_KEY), null);
-  assert.equal(calls.length, 0);
+  assert.equal(client.enabled, true);
+  assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.CONSENT_KEY), 'true');
+  assert.match(storage.getItem(ANALYTICS_STORAGE_KEYS.VISITOR_KEY), /^[A-Za-z0-9_-]{8,96}$/);
+  assert.ok(client.track('shop_buy', st, { itemId: 'water', quantity: 1, cost: 2 }));
+  assert.ok(client.beginRun(st, { fresh: true }));
+  assert.ok(client.queue.length > 0);
+  assert.equal(calls.length, 0, 'tracking queues locally until flush is called');
 });
 
-test('启用后匿名visitor持久化，关闭清理visitor和有限队列', () => {
+test('退出持久化false并清理visitor和有限队列，重新初始化仍关闭', () => {
   const { client, storage } = enabledClient(async () => response({ accepted: 0 }));
   assert.equal(client.enabled, true);
   const visitor = storage.getItem(ANALYTICS_STORAGE_KEYS.VISITOR_KEY);
@@ -47,9 +47,34 @@ test('启用后匿名visitor持久化，关闭清理visitor和有限队列', () 
   assert.ok(JSON.parse(storage.getItem(ANALYTICS_STORAGE_KEYS.QUEUE_KEY)).length > 0);
   client.setEnabled(false);
   assert.equal(client.enabled, false);
-  assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.CONSENT_KEY), null);
+  assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.CONSENT_KEY), 'false');
   assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.VISITOR_KEY), null);
   assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.QUEUE_KEY), null);
+
+  const reloaded = new AnalyticsClient({ storage, fetcher: async () => response({ accepted: 0 }) });
+  assert.equal(reloaded.enabled, false);
+  assert.equal(reloaded.visitorId, null);
+  assert.equal(reloaded.track('shop_buy', state(), { itemId: 'water', quantity: 1, cost: 2 }), null);
+});
+
+test('缺失consent默认开启，显式true保持开启', () => {
+  const storage = new MemoryStorage();
+  const client = new AnalyticsClient({ storage, fetcher: async () => response({ accepted: 0 }) });
+  assert.equal(client.enabled, true);
+  assert.equal(storage.getItem(ANALYTICS_STORAGE_KEYS.CONSENT_KEY), 'true');
+
+  const explicit = new MemoryStorage({ [ANALYTICS_STORAGE_KEYS.CONSENT_KEY]: 'true' });
+  assert.equal(new AnalyticsClient({ storage: explicit }).enabled, true);
+  assert.equal(explicit.getItem(ANALYTICS_STORAGE_KEYS.CONSENT_KEY), 'true');
+});
+
+test('analytics client accepts and serializes every expanded role ID', () => {
+  for (const role of ['cook', 'geographer', 'porter', 'photographer']) {
+    const { client } = enabledClient(async () => response({ accepted: 0 }));
+    const st = state({ role });
+    assert.ok(client.beginRun(st, { fresh: true }), role);
+    assert.equal(client.queue.find((event) => event.type === 'run_started')?.role, role);
+  }
 });
 
 test('shop在beginRun前建立draft run，fresh启动保留同一runId且只产生一次run_started', () => {
@@ -135,14 +160,17 @@ test('timeout、fetcher抛错和无localStorage都不抛异常', async () => {
   await assert.doesNotReject(noStorage.choose(null, question, 'check'));
 });
 
-test('同意时choice为POST，无同意时choice只发GET且结果校验不过不阻塞玩法', async () => {
+test('开启时choice为POST，明确退出时choice只发GET且结果校验不过不阻塞玩法', async () => {
   const requests = [];
   const fetcher = async (url, options) => {
     requests.push({ url, options });
     return response({ questionId: question.questionId, total: 3, counts: { check: 2, leave: 1 }, unexpected: 9 });
   };
-  const disabled = new AnalyticsClient({ storage: new MemoryStorage(), fetcher });
-  const readOnly = await disabled.choose(null, question, 'check');
+  const optedOut = new AnalyticsClient({
+    storage: new MemoryStorage({ [ANALYTICS_STORAGE_KEYS.CONSENT_KEY]: 'false' }),
+    fetcher,
+  });
+  const readOnly = await optedOut.choose(null, question, 'check');
   assert.equal(readOnly, null);
   assert.equal(requests[0].options.method, 'GET');
   assert.match(requests[0].url, /questionId=event%3Aold_tent%3Acheck%7Cleave/);

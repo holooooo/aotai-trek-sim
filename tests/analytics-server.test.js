@@ -7,6 +7,9 @@ import { EVENT_IDS, ITEM_CATEGORIES, NPC_IDS } from '../server/analytics-catalog
 import { EVENTS } from '../src/data/events.js';
 import { EXPANDED_EVENTS } from '../src/data/events-expanded.js';
 import { REPORTED_EVENTS } from '../src/data/events-reported.js';
+import { RANDOM_EVENTS } from '../src/data/events-random.js';
+import { STRESS_EVENTS } from '../src/data/events-stress.js';
+import { EXIT_EVENTS } from '../src/data/events-exits.js';
 import { ITEMS } from '../src/data/items.js';
 import { NPCS } from '../src/data/npcs.js';
 
@@ -197,7 +200,7 @@ test('explicit system story scenes accept only their known option ids', async ()
 });
 
 test('server catalogue covers actual event/NPC/item ids without copying private payload fields', () => {
-  assert.deepEqual([...EVENT_IDS].sort(), [...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS].map((e) => e.id).sort());
+  assert.deepEqual([...EVENT_IDS].sort(), [...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS, ...RANDOM_EVENTS, ...STRESS_EVENTS, ...EXIT_EVENTS].map((e) => e.id).sort());
   assert.deepEqual([...NPC_IDS].sort(), NPCS.map((e) => e.id).sort());
   assert.deepEqual(ITEM_CATEGORIES, Object.fromEntries(Object.entries(ITEMS).map(([id, item]) => [id, item.cat])));
 });

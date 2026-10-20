@@ -113,7 +113,7 @@ export function profileSVG({
     );
   }
 
-  // ---- 南坡下撤支线（示意：横向压缩到 lengthKm 的 60%） ----
+  // ---- 当前虚构下撤支线（示意：横向压缩到 lengthKm 的 60%） ----
   let branchAt = null; // 支线上 [x, y] 的插值函数
   if (branch) {
     const startAlt = branch.startAlt ?? altAt(wps, branch.fromKm);
@@ -198,7 +198,7 @@ export function profileSVG({
   );
 
   // ---- 右上角方向提示 ----
-  const hint = onBranch ? '↘ 南坡下撤 · 核桃坪' : dir > 0 ? '→ 太白山 · 拔仙台' : '← 下撤 · 塘口';
+  const hint = onBranch ? `↘ ${branch?.name || '虚构支线'} · 游戏参考` : dir > 0 ? '→ 太白山 · 拔仙台' : '← 下撤 · 塘口';
   out.push(text(width - 8, 11, hint, `text-anchor="end" font-size="11" fill="${onBranch ? COL.branch : COL.label}"`));
 
   out.push('</svg>');

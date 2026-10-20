@@ -20,6 +20,14 @@ import { difficultyProfile, maxHealth, ensureDifficulty } from './difficulty.js'
 import { weatherAt, windVectors, airTemp, sunElevation, beaufort, compassName } from './weather.js';
 import { computeEnv, stepBody, coreFeel } from './body.js';
 import { has, removeItem, addItem, packWeight, packCapacity, tentItem, wornItems } from './state.js';
+import { ensureClothes, changeClothing, canDryClothes, dryableClothes, beginClothesDrying, garmentWetness } from './clothes.js';
+import { ensureLampMode, updateLamp } from './lighting.js';
+import { ensurePsychology } from './stress.js';
+import { applyFood, foodEffectSummary } from './nutrition.js';
+import { ensureEncounters, npcEncounterAllowed, eventEncounterAllowed } from './encounters.js';
+import { RANDOM_EVENTS } from '../data/events-random.js';
+import { STRESS_EVENTS } from '../data/events-stress.js';
+import { EXIT_EVENTS } from '../data/events-exits.js';
 import { clamp, lerp } from '../world/noise.js';
 import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST, EPILOGUE_LIST } from './records.js';
 
@@ -28,6 +36,7 @@ const BASE_SPEED = 3.2;
 const SAVE_KEY = 'aotai-save-v1';
 const NPC_COND = { straggler: 30, wu: 35, boy: 30, chen: 25, yu: 55, mou: 90, speedteam: 80 };
 const PASS_FATE = { wu: 'died', boy: 'died', straggler: 'died', yu: 'waited', chen: 'died', mou: 'safe', speedteam: 'danger' };
+const ALL_EVENTS = [...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS, ...RANDOM_EVENTS, ...STRESS_EVENTS, ...EXIT_EVENTS];
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 export class Game {
@@ -49,13 +58,17 @@ export class Game {
   }
 
   // ———————————————————— 生命周期 ————————————————————
-  start(st) {
+  start(st, { fresh = false } = {}) {
     this.eventCamera?.reset();
     this.clearEventActor();
     this.st = st;
     ensureStoryState(st);
     ensureDifficulty(st);
     ensureEventPacing(st);
+    ensureClothes(st);
+    ensurePsychology(st);
+    ensureLampMode(st);
+    ensureEncounters(st, NPCS, ALL_EVENTS, { fresh });
     st.pace = st.pace === 'fast' ? 'fast' : 'walk';
     this.role = roleById(st.role);
     this.over = false;
@@ -116,7 +129,7 @@ export class Game {
     this.ui.showHud(true);
     this.refreshHud(true);
     if (st.ending?.pending) void this.finish(st.ending.type, st.ending.cause);
-    else if (st.camp?.inside && !st.story.pendingEvent) this.ui.showCampMenu(this.campMenuInfo());
+    else if (st.camp?.inside && !st.story.pendingEvent && !st.story.pendingNpc) this.ui.showCampMenu(this.campMenuInfo());
   }
 
   dispose() {
@@ -141,13 +154,26 @@ export class Game {
   isNurse() { return this.st.role === 'nurse'; }
   hasItem(id) { return has(this.st, id); }
   hasInsul() { return !!wornItems(this.st).insul; }
-  inTent() { return !!(this.st.camp && this.st.camp.inside && !this.st.camp.bivy); }
+  inTent() { const c = this.st.camp; return !!(c?.inside && !c.bivy && !c.collapsed && c.health > 0); }
   hour() { return (((this.st.time % 1440) + 1440) % 1440) / 60; }
   day() { return Math.floor(this.st.time / 1440); }
   sunEl() { return sunElevation(this.hour()); }
   night() { return this.sunEl() < -0.05; }
   daylight() { return this.sunEl() > 0.05; }
   wx() { return weatherAt(this.st.schedule, this.st.time); }
+  updateLampState() {
+    const p = this.st.pos;
+    const terrain = p ? columnInfo(Math.floor(p.x), Math.floor(p.z)).type : 'village';
+    return updateLamp(this.st, { sunEl: this.sunEl(), wx: this.wx(), terrain });
+  }
+  setLampMode(mode) {
+    if (!this.st || this.over || this.busy || this.eventRunning || !['auto', 'on', 'off'].includes(mode)) return;
+    this.st.lampMode = mode;
+    const result = this.updateLampState();
+    this.toast(mode === 'auto' ? `头灯已设为自动：当前${result.on ? '照明' : '熄灭'}。` : mode === 'on' ? result.on ? '头灯已手动打开。' : '没有可用的头灯或电量不足。' : '头灯已手动关闭；自动模式不会覆盖此设置。', 'info');
+    this.save();
+    this.refreshHud(true);
+  }
   foggy() { return this.wx().fog > 0.6; }
   here() { return columnInfo(Math.floor(this.pos.x), Math.floor(this.pos.z)); }
   alt() { return voxToAlt(this.world.height(this.pos.x, this.pos.z)); }
@@ -229,6 +255,7 @@ export class Game {
   update(dt) {
     if (!this.st || this.over) return;
     dt = Math.min(dt, 0.1);
+    this.updateLampState();
     const modal = this.ui.modalOpen;
     const canAct = !modal && !this.busy && !this.eventRunning;
     this.moving = false;
@@ -237,7 +264,7 @@ export class Game {
       this.restTimer = this.moving ? 0 : this.restTimer + dt;
       const pacing = advanceEventPacing(this.st, dt, this.moving);
       // 未移动的新局只展示操作界面，不偷跑时间、扣资源或自动弹事件。
-      if (this.st.story.pendingEvent) {
+      if (this.st.story.pendingEvent || this.st.story.pendingNpc) {
         this.checkTriggers(dt);
       } else if (pacing.started) {
         this.simulate(dt * TIME_SCALE);
@@ -435,20 +462,23 @@ export class Game {
 
   updateProgress() {
     const st = this.st;
-    // 主线 ↔ 南坡支线自动切换
-    const b = branches.hetaoping;
-    const s2800 = b.fromS;
-    if (st.path === 'main' && Math.abs(st.s - s2800) < 90) {
-      const nb = b.nearest(this.pos.x, this.pos.z);
+    // 主线 ↔ 所有虚构下撤支线；靠真实移动进入，不传送。
+    if (st.path === 'main') {
       const nm = mainPath.nearestNear(this.pos.x, this.pos.z, st.s, 60);
-      if (nb.d < 3 && nb.s > 14 && nm.d > 10) {
-        st.path = 'hetaoping'; st.s = nb.s; st.dir = 1;
-        this.toast('你走上了南坡下撤的路。', 'info');
+      for (const b of Object.values(branches)) {
+        if (Math.abs(st.s - b.fromS) >= 90) continue;
+        const nb = b.nearest(this.pos.x, this.pos.z);
+        if (nb.d < 3 && nb.s > 14 && nm.d > 10) {
+          st.path = b.id; st.s = nb.s; st.dir = 1;
+          this.toast(`你走进了${b.def.name}。这是游戏改编分支。`, 'info');
+          break;
+        }
       }
-    } else if (st.path === 'hetaoping') {
+    } else {
+      const b = branches[st.path];
       const nb = b.nearestNear(this.pos.x, this.pos.z, st.s, 40);
       const nm = mainPath.nearest(this.pos.x, this.pos.z);
-      if (nb.s < 10 && nm.d < nb.d) { st.path = 'main'; st.s = nm.s; st.dir = 1; this.toast('你回到了主线山脊。', 'info'); }
+      if (nb.s < 10 && nm.d < nb.d) { st.path = 'main'; st.s = nm.s; st.dir = -1; this.toast('你回到了主线山脊，朝塘口方向。', 'info'); }
     }
     const path = this.path();
     const near = st.flags.freeDescent ? path.nearest(this.pos.x, this.pos.z) : path.nearestNear(this.pos.x, this.pos.z, st.s, 60);
@@ -520,6 +550,7 @@ export class Game {
 
   simulate(minutes, modeOverride, opts = {}) {
     const st = this.st;
+    this.updateLampState();
     const c = this.ctx();
     const env = computeEnv(st, c);
     if (env.tentInfo && st.story.effects.tentLeak) {
@@ -545,6 +576,7 @@ export class Game {
     st.flags.blanketOn = has(st, 'blanket') && (mode === 'rest' || mode === 'sleep' || mode === 'idle');
     const notes = stepBody(st, env, act, minutes, this.role);
     st.time += minutes;
+    this.updateLampState();
 
     // 积雪
     st.flags.snowDepth = clamp((st.flags.snowDepth || 0) + (c.wx.precip * 0.004 - 0.0008) * minutes, 0, 1.2);
@@ -682,9 +714,14 @@ export class Game {
     const st = this.st;
     if (this.eventRunning || this.over) return;
     if (st.story.pendingEvent) {
-      const pending = [...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS].find((ev) => ev.id === st.story.pendingEvent);
+      const pending = ALL_EVENTS.find((ev) => ev.id === st.story.pendingEvent);
       if (pending) return this.runScheduledEvent(pending);
       st.story.pendingEvent = null;
+    }
+    if (st.story.pendingNpc) {
+      const id = st.story.pendingNpc;
+      if (this.npcRt[id]) return this.runEvent(() => this.meetNpc(id), { focus: { npc: id } });
+      st.story.pendingNpc = null;
     }
     const exit = travelEnding(st, this.pos, { falling: this.falling, groundY: this.world.height(this.pos.x, this.pos.z) });
     if (exit) return this.finish(exit);
@@ -729,16 +766,9 @@ export class Game {
     if (hr > 16.3 && hr < 18 && !st.flags[dkey] && !(st.camp && st.camp.inside)) {
       st.flags[dkey] = true;
       this.toast('太阳快落山了。冬天的夜晚有十四个小时——天黑前找好营地。', 'warn', 6000);
-      if (has(st, 'headlamp')) st.lampOn = true;
+
     }
-    if (hr > 7.9 && hr < 9 && st.lampOn && !st.flags['lampoff' + this.day()]) {
-      st.flags['lampoff' + this.day()] = true;
-      st.lampOn = false;
-    }
-    if (this.night() && has(st, 'headlamp') && st.bat.headlamp > 0 && !st.lampOn && !st.flags['lampon' + this.day()] && !(st.camp && st.camp.inside)) {
-      st.flags['lampon' + this.day()] = true;
-      st.lampOn = true;
-    }
+
     // 诱惑（幻觉）
     if (this.lure) {
       const d = Math.hypot(this.pos.x - this.lure.x, this.pos.z - this.lure.z);
@@ -772,7 +802,7 @@ export class Game {
     this.lastEventCheck += dt;
     if (this.lastEventCheck > 1.4) {
       this.lastEventCheck = 0;
-      const ev = chooseEvent([...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS], this);
+      const ev = chooseEvent(ALL_EVENTS.filter(def => eventEncounterAllowed(st, def)), this);
       if (ev) return this.runScheduledEvent(ev);
     }
   }
@@ -996,7 +1026,8 @@ export class Game {
       text: [
         '湖边小屋里走出来一个穿着橙色冲锋衣的工作人员，上下打量了你一眼。',
         '"从鳌山那边过来的？"他叹了口气，"先进屋暖和一下吧。罚款的事，下山再说。"',
-        '屋里有炉子、有热水。你已经三天没有见过这么暖和的地方了。',
+        '屋里有热水。你已经很久没有见过这么暖和的地方了。',
+        '这是本局虚构接应情节。现实中高山区域可能封闭，小屋、索道、工作人员和通讯均不能保证可用。',
       ],
       choices: [
         { id: 'summit', label: '休整后登顶拔仙台', sub: '还有约3公里' },
@@ -1029,7 +1060,7 @@ export class Game {
     const choices = [
       { id: 'push', label: `赶往${nextCamp.name}`, sub: nextCamp.km ? `还有约 ${nextCamp.km.toFixed(1)} km` : '' },
       { id: 'camp', label: '就地找背风处扎营', sub: tentItem(st) ? '在风雪来临前搭好帐篷' : '你没有帐篷——只能找石头背风处' },
-      { id: 'retreat', label: '开始下撤', sub: this.canBranch() ? '原路返回 / 南坡下撤' : '原路返回' },
+      { id: 'retreat', label: '开始下撤', sub: this.canBranch() ? '原路返回 / 附近的改编支线' : '原路返回' },
     ];
     if (e.warn === 'fog' && has(st, 'gps')) choices.push({ id: 'gps', label: '打开GPS，继续走', sub: '耗电' });
     const c = await this.dialog({ who: '天气要变了', sub: e.warn === 'fog' ? '大雾' : e.warn === 'gale' ? '大风' : '冷锋过境', text: texts, choices });
@@ -1041,7 +1072,7 @@ export class Game {
 
   nextCampInfo() {
     const st = this.st;
-    if (st.path !== 'main') return { name: '核桃坪', km: (this.path().length - st.s) * KM_PER_UNIT };
+    if (st.path !== 'main') return { name: this.path().def?.name || '虚构支线', km: (this.path().length - st.s) * KM_PER_UNIT };
     const list = mainPath.waypoints.filter((w) => (w.camp || w.end) && (st.dir > 0 ? w.s > st.s + 5 : w.s < st.s - 5));
     const wp = st.dir > 0 ? list[0] : list[list.length - 1];
     if (!wp) return { name: '塘口', km: st.s * KM_PER_UNIT };
@@ -1056,6 +1087,7 @@ export class Game {
     for (const def of NPCS) {
       if (st.npcs[def.id]?.spawned) continue;
       if (def.path !== st.path) continue;
+      if (!npcEncounterAllowed(st, def)) continue;
       if (km < def.fromKm || km > def.toKm) continue;
       if (def.requires && !def.requires(this)) continue;
       this.spawnNpc(def);
@@ -1117,14 +1149,35 @@ export class Game {
   }
 
   async meetNpc(id) {
-    const rt = this.npcRt[id];
-    if (!rt) return;
+    const st = this.st, rt = this.npcRt[id];
+    if (!rt || !st || this.over) return;
+    const ownsSnapshot = !this.eventSnapshot;
+    st.story.pendingNpc = id;
+    if (ownsSnapshot) this.eventSnapshot = JSON.stringify(st);
+    this.save();
     rt.ns.met = true;
     if (rt.marker) rt.marker.visible = false;
     this.autoWalk = false;
     this.log(`遇到了${rt.def.name}`);
-    await rt.def.meet(this, rt);
-    this.save();
+    try {
+      await rt.def.meet(this, rt);
+      if (this.st === st) st.story.pendingNpc = null;
+    } catch (error) {
+      if (ownsSnapshot && this.st === st && !this.over) {
+        const restored = JSON.parse(this.eventSnapshot);
+        if (st.telemetry) restored.telemetry = st.telemetry; else delete restored.telemetry;
+        restored.story.pendingNpc = null;
+        this.start(restored);
+        this.save();
+        this.toast('这次交谈未能完成，已恢复到交谈前。', 'warn');
+      }
+      throw error;
+    } finally {
+      if (this.st === st) {
+        if (ownsSnapshot) this.eventSnapshot = null;
+        this.save();
+      }
+    }
   }
 
   updateNpcs(dt) {
@@ -1247,8 +1300,8 @@ export class Game {
     return f ? `你有${ITEMS[f].name}` : '你没有多余的食物';
   }
   _pickFood() {
-    for (const id of ['selfheat', 'biscuit', 'jerky', 'chocolate', 'bar', 'noodle', 'gel', 'glucose']) if (has(this.st, id)) return id;
-    return null;
+    return Object.keys(this.st.inv).filter(id => has(this.st, id) && ITEMS[id]?.kind === 'food' && !ITEMS[id].alcohol)
+      .sort((a, b) => (ITEMS[b].food || 0) - (ITEMS[a].food || 0) || a.localeCompare(b))[0] || null;
   }
   feedNpc(id) {
     const st = this.st;
@@ -1389,52 +1442,53 @@ export class Game {
     }
   }
 
-  async retreatMenu() {
+  nearbyBranches() {
     const st = this.st;
-    const choices = [];
-    if (st.path === 'main' && st.dir > 0) choices.push({ id: 'back', label: '原路返回塘口', sub: `约 ${(st.s * KM_PER_UNIT).toFixed(1)} km` });
-    if (canFreeDescent(st)) choices.push({ id: 'free', label: '从这里自行寻找下撤方向', sub: '手动控制，不沿既有路线自动寻路' });
-    if (this.canBranch()) choices.push({ id: 'hetaoping', label: '南坡下撤 · 核桃坪', sub: '从2800营地向南，约10 km 下降到林道' });
-    if (st.dir < 0 && st.path === 'main') choices.push({ id: 'forward', label: '掉头，继续往太白山方向' });
-    choices.push({ id: 'cancel', label: '再想想' });
-    const c = await this.dialog({ who: '下撤', text: ['下撤不丢人。在鳌太线上，能在还有余力的时候回头，是最重要的能力。', st.flags.knowsBailout ? '小牟说过：实在不行，就到2800营地往南坡下。' : ''].filter(Boolean), choices });
-    if (c === 'back' || c === 'hetaoping' || c === 'free') this.retreat(c);
-    if (c === 'forward') { st.flags.freeDescent = false; st.dir = 1; this.cam.yaw += Math.PI; this.toast('你转过身，重新朝太白山方向走去。', 'info'); }
+    return st.path === 'main' && (this.offTrail || 0) < 25
+      ? Object.values(branches).filter(b => Math.abs(st.s - b.fromS) < 24) : [];
   }
 
-  canBranch() {
-    const st = this.st;
-    return st.path === 'main' && Math.abs(st.s - branches.hetaoping.fromS) < 60;
+  async retreatMenu() {
+    const st = this.st, nearby = this.nearbyBranches();
+    const choices = [];
+    if (st.path === 'main' && st.dir > 0) choices.push({ id: 'back', label: '原路返回塘口', sub: `游戏路程约 ${(st.s * KM_PER_UNIT).toFixed(1)} km` });
+    if (st.path !== 'main' && st.dir > 0) choices.push({ id: 'junction', label: '沿已走过的支线返回主脊岔口', sub: '仍须自己走回去，不会传送' });
+    if (canFreeDescent(st)) choices.push({ id: 'free', label: '从这里自行寻找下撤方向', sub: '手动控制，不自动寻路；低海拔不代表现实脱险' });
+    for (const b of nearby) choices.push({ id: b.id, label: b.def.name, sub: `游戏设定约${b.def.lengthKm} km · 并非已核实的现实道路` });
+    if (st.dir < 0) choices.push({ id: 'forward', label: st.path === 'main' ? '掉头，继续往太白山方向' : '掉头，继续沿当前支线下行' });
+    choices.push({ id: 'cancel', label: '再想想' });
+    const c = await this.dialog({ who: '下撤', text: ['下撤仍会耗费体力、食物和时间。能否回到山下，不只取决于海拔是否降低。', '虚线支线参考历史事故区域或原计划；起点、方位、连接、里程和接触点均为游戏虚构，不是现实撤离指南。'], choices });
+    if (this.over || this.st !== st) return;
+    if (c === 'back' || c === 'junction' || c === 'free' || nearby.some(b => b.id === c)) this.retreat(c);
+    if (c === 'forward') { st.flags.freeDescent = false; st.dir = 1; this.cam.yaw += Math.PI; this.toast('你转过身，继续当前路线的前向行程。', 'info'); this.save(); }
   }
+
+  canBranch() { return this.nearbyBranches().length > 0; }
 
   retreat(kind) {
     const st = this.st;
     if (kind === 'free') {
       if (!canFreeDescent(st)) return;
-      st.flags.freeDescent = true;
-      this.autoWalk = false;
-      this.lure = null;
+      st.flags.freeDescent = true; this.autoWalk = false; this.lure = null;
       this.log('开始自行下撤');
-      this.toast('你离开了既定行程，开始自己寻找下山方向。', 'info', 5000);
-      this.save();
-      return;
+      this.toast('你开始自己寻找下山方向。游戏地形不是现实导航。', 'info', 5000);
+      this.save(); return;
     }
-    st.flags.freeDescent = false;
-    if (kind === 'back') {
+    if (kind === 'back' || kind === 'junction') {
+      st.flags.freeDescent = false;
       if (st.dir > 0) this.cam.yaw += Math.PI;
       st.dir = -1;
-      this.log('决定原路下撤');
-      this.toast('你决定原路下撤。打开"沿路走"，会自动朝塘口方向走。', 'good', 5000);
-    } else if (kind === 'hetaoping') {
-      const b = branches.hetaoping;
-      st.path = 'hetaoping';
-      st.dir = 1;
-      const nb = b.nearest(this.pos.x, this.pos.z);
-      st.s = nb.s;
+      this.log(st.path === 'main' ? '决定原路下撤' : '决定返回支线岔口');
+      this.toast(st.path === 'main' ? '你决定原路返回塘口。' : '你沿已经走过的支线返回主脊岔口。', 'info', 5000);
+    } else {
+      const b = this.nearbyBranches().find(b => b.id === kind);
+      if (!b) return;
+      st.flags.freeDescent = false; st.path = b.id; st.dir = 1;
+      st.s = b.nearest(this.pos.x, this.pos.z).s;
       const p = b.pointAt(st.s + 5);
       this.cam.yaw = Math.atan2(-p.dx, -p.dz);
-      this.log('决定从南坡下撤');
-      this.toast('你转向南坡，朝核桃坪下撤。', 'good', 5000);
+      this.log(`决定进入${b.def.name}`);
+      this.toast(`你转向${b.def.name}，仍需实际走完整段行程。`, 'info', 5000);
     }
     this.save();
   }
@@ -1575,9 +1629,47 @@ export class Game {
       inside: env ? Math.round(env.Teff) : null,
       canCook: has(st, 'stove') && has(st, 'pot') && st.gas.normal + st.gas.alpine > 0,
       canSos: this.comms().any,
+      canDry: canDryClothes(st),
       rescue: st.rescue?.self ? true : null,
       night: this.night() || this.hour() > 15.5,
     };
+  }
+
+  async dryClothes() {
+    const st = this.st;
+    if (!st || this.over || this.busy || this.eventRunning) return;
+    if (!canDryClothes(st)) return this.toast('需要在完好、已进入的帐篷里晾挂。露宿或塌帐不能这样干燥衣物。', 'warn');
+    if (st.body.core < 35) return this.toast('你已经明显失温，先避风保暖；现在不适合脱衣晾挂。', 'danger');
+    const ids = dryableClothes(st);
+    if (!ids.length) return this.toast('没有可晾挂的湿衣。先在背包里脱下要处理的湿衣，并留足干燥保暖层。', 'info', 6500);
+    this.ui.hideCampMenu();
+    this.ui.closeSheet?.();
+    const list = ids.map(id => `${ITEMS[id].name} ${Math.round(garmentWetness(st, id))}%`).join('、');
+    const choice = await this.dialog({
+      pollSource: 'utility:dry_clothes', who: '晾干湿衣', sub: '通风晾挂 · 帐内禁止明火烘烤',
+      text: [`准备晾挂：${list}。`, '低温干燥需要时间，棉质和羽绒会更慢；湿衣必须先脱下，保留干燥保暖层。不能在封闭帐篷内使用炉具取暖或烘衣，存在火灾和一氧化碳风险。'],
+      choices: [
+        { id: 'air', label: '通风晾挂30分钟', sub: '不消耗燃料，寒冷时干燥较慢' },
+        { id: 'assisted', label: '用暖宝宝辅助晾挂30分钟', sub: `消耗1片，剩余${st.warmers}片；不直接贴皮肤，不包裹密封`, disabled: st.warmers <= 0 },
+        { id: 'back', label: '暂不处理' },
+      ],
+    });
+    if (this.over || this.st !== st) return;
+    if (choice === 'air' || choice === 'assisted') {
+      const started = beginClothesDrying(st, { assisted: choice === 'assisted' });
+      if (started) {
+        const before = started.ids.reduce((sum, id) => sum + garmentWetness(st, id), 0);
+        this.ui.setBusy('通风晾挂衣物……', true);
+        const reason = await this.skip(30, 'rest', { check: () => st.body.core < 35 ? 'cold' : st.camp?.collapsed || !st.camp?.inside ? 'camp' : null });
+        this.ui.setBusy(null);
+        if (this.over || this.st !== st) return;
+        const after = started.ids.reduce((sum, id) => sum + garmentWetness(st, id), 0);
+        if (reason) { ensureClothes(st).drying = []; this.toast('你停止晾挂，先重新整理保暖和营地。', 'warn', 5000); }
+        else this.toast(`衣物平均潮湿度降低了${Math.max(0, (before - after) / started.ids.length).toFixed(1)}个百分点；留在帐内未穿的衣物会继续晾挂。`, 'info', 6500);
+        this.save();
+      }
+    }
+    if (!this.over && st.camp?.inside) this.ui.showCampMenu(this.campMenuInfo());
   }
 
   async packCamp() {
@@ -1594,6 +1686,7 @@ export class Game {
       if (st.camp.collapsed) { st.story.effects.tentLeak = false; removeItem(st, st.camp.tent); this.toast('帐篷已经坏了，你把它扔下了。', 'warn'); }
     }
     st.camp = null;
+    ensureClothes(st).drying = [];
     this.player.visible = true;
     this.save();
   }
@@ -1683,7 +1776,7 @@ export class Game {
     if (c === 'drink') this.drinkThermos();
     if (c === 'eat') this.eat(this._pickFood());
     if (c === 'warmer') this.useWarmer();
-    if (c === 'insul') st.wearInsul = true;
+    if (c === 'insul') await this.setInsulation(true);
     if (c === 'move') { st.body.stamina -= 8; st.body.core += 0.25; st.body.food -= 2; }
     return c !== 'up';
   }
@@ -1731,40 +1824,50 @@ export class Game {
   async passTime(min) { await this.skip(min, this.st.camp && this.st.camp.inside ? 'rest' : 'idle'); }
 
   // ———————————————————— 物品使用 ————————————————————
+  async setInsulation(worn) {
+    const id = wornItems(this.st).insul;
+    if (!id) return null;
+    if (!!this.st.wearInsul === !!worn) return { unchanged: true };
+    return this.equipClothing(id, { allowEvent: true });
+  }
+
+  async removeOuterClothing() {
+    const c = wornItems(this.st);
+    const id = c.shell || (this.st.wearInsul && c.insul) || c.mid || c.base;
+    return id ? this.equipClothing(id, { allowEvent: true }) : null;
+  }
+
+  async equipClothing(id, { allowEvent = false } = {}) {
+    const st = this.st;
+    if (!st || this.over || this.busy || this.eventRunning && !allowEvent || !has(st, id) || ITEMS[id]?.kind !== 'cloth') return;
+    this.autoWalk = false;
+    const env = computeEnv(st, this.ctx());
+    const change = changeClothing(st, id, env);
+    if (!change) return;
+    this.ui.setBusy('调整穿着……');
+    await this.skip(change.minutes, this.inTent() ? 'rest' : 'idle');
+    this.ui.setBusy(null);
+    if (this.over || this.st !== st) return;
+    this.toast(`${change.worn ? '穿上' : '脱下'}${ITEMS[id].name}。${change.coreCost > 0.04 ? '冷空气从衣缝里钻进来，换装消耗了体温。' : ''}`, change.coreCost > 0.15 ? 'warn' : 'info', 4500);
+    this.save();
+    this.refreshHud(true);
+    return change;
+  }
+
   eat(id) {
-    const st = this.st, b = st.body;
+    const st = this.st;
     const it = ITEMS[id];
-    if (!it || !has(st, id)) return;
+    if (!st || this.over || it?.kind !== 'food' || !has(st, id)) return;
+    const hot = !!(it.needsHot && st.thermos.l >= 0.3 && st.thermos.temp > 50);
+    if (!applyFood(st, id, { hot })) return;
     removeItem(st, id);
-    let food = it.food || 0;
-    let msg = `吃了${it.name}。`;
-    if (it.needsHot) {
-      if (st.thermos.l >= 0.3 && st.thermos.temp > 50) {
-        st.thermos.l -= 0.3;
-        b.core = Math.min(37.2, b.core + (it.heat || 0.4));
-        b.water = clamp(b.water + 6, 0, 100);
-        msg = `用热水泡了${it.name}。一口热汤下肚，整个人活过来了。`;
-        this.addStress(-6);
-      } else {
-        food *= 0.6;
-        b.water = clamp(b.water - 4, 0, 100);
-        msg = `没有热水，你干嚼了${it.name}。`;
-      }
-    } else if (it.heat) {
-      b.core = Math.min(37.2, b.core + it.heat);
-      this.addStress(-6);
-      msg = `${it.name}冒着热气。热的东西，在山上就是命。`;
-    }
-    if (it.alcohol) {
-      st.alcoholLeft = 120;
-      this.addStress(-10);
-      msg = '一口白酒下肚，一股暖流涌遍全身……其实那是皮肤血管扩张的错觉，核心的热量正在流失。';
-    }
-    if (id === 'chocolate' && this.airT() < -10) msg = '巧克力冻得像石头，你含了半天才化开。';
-    b.food = clamp(b.food + food, 0, 100);
-    b.water = clamp(b.water + (it.water || 0), 0, 100);
-    b.stamina = clamp(b.stamina + (it.stamina || 0), 0, 100);
-    this.toast(msg, it.alcohol ? 'warn' : 'info', 4000);
+    if (hot) st.thermos.l = Math.max(0, st.thermos.l - 0.3);
+    let msg = it.needsHot ? hot ? `用热水泡了${it.name}。热汤让你缓过了一口气。` : `没有热水，你干嚼了${it.name}；补给较少，口中更干。` : it.heat ? `吃了热腾腾的${it.name}。` : `吃了${it.name}。`;
+    if (it.alcohol) msg = '喝下白酒后你觉得皮肤暖了，但那是血管扩张的错觉，核心热量流失更快。';
+    if (id === 'chocolate' && this.airT() < -10) msg = '巧克力冻得像石头，你含了一会儿才化开。';
+    if (!it.alcohol && (!it.needsHot || hot)) { const summary = foodEffectSummary(id); if (summary) msg += ` ${summary}`; }
+    this.toast(msg, it.alcohol ? 'warn' : 'info', 5000);
+    this.save();
   }
 
   drinkThermos() {
@@ -1802,9 +1905,24 @@ export class Game {
     const st = this.st;
     if (!has(st, 'stove') || !has(st, 'pot')) return this.toast('需要炉头和锅。', 'warn');
     if (st.gas.normal + st.gas.alpine <= 0) return this.toast('气罐用完了。', 'warn');
-    const T = this.airT() + (this.inTent() ? 5 : 0);
-    const windy = !this.inTent() && this.wx().wind * this.exposure() > 10;
-    this.ui.setBusy('烧水……');
+    const camp = st.camp, wasInside = !!camp?.inside;
+    const origin = { x: this.pos.x, y: this.pos.y, z: this.pos.z };
+    if (wasInside && !camp.bivy) {
+      const options = [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(a => {
+        const x = camp.x + Math.cos((camp.rot || 0) + a) * 3;
+        const z = camp.z + Math.sin((camp.rot || 0) + a) * 3;
+        return { x, z, y: this.world.height(x, z) };
+      });
+      const spot = options.find(p => Number.isFinite(p.y) && Math.abs(p.y - origin.y) <= 1.2);
+      if (!spot) return this.toast('帐外附近没有可站稳的烧水位置。不要在帐内点炉。', 'warn');
+      Object.assign(this.pos, spot);
+      st.pos = { x: spot.x, z: spot.z };
+    }
+    if (wasInside) { camp.inside = false; this.ui.hideCampMenu(); }
+    this.updateLampState();
+    const T = this.airT();
+    const windy = this.wx().wind * this.exposure() > 10;
+    this.ui.setBusy('在帐外烧水……');
     let ok = true;
     if (st.gas.alpine > 0) {
       st.gas.alpine -= windy ? 2 : 1;
@@ -1817,9 +1935,24 @@ export class Game {
     }
     st.gas.alpine = Math.max(0, st.gas.alpine);
     st.gas.normal = Math.max(0, st.gas.normal);
-    await this.skip(windy ? 25 : 15, st.camp && st.camp.inside ? 'rest' : 'idle');
-    this.ui.setBusy(null);
+    try {
+      await this.skip(windy ? 25 : 15, 'idle', { check: () => wasInside && (camp.collapsed || camp.health <= 0) ? 'camp' : null });
+    } finally {
+      if (this.st === st) {
+        this.ui.setBusy(null);
+        if (wasInside && !this.over && st.camp === camp && !camp.collapsed && (camp.bivy || camp.health > 0)) {
+          camp.inside = true; Object.assign(this.pos, origin);
+          st.pos = { x: origin.x, z: origin.z };
+          if (!this.eventRunning) this.ui.showCampMenu(this.campMenuInfo());
+        }
+        this.updateLampState(); this.save();
+      }
+    }
     if (this.over || this.st !== st) return;
+    if (wasInside && (camp.collapsed || !camp.bivy && camp.health <= 0)) {
+      this.toast('烧水被帐篷倒塌打断了。请先处理营地，不要重新钻进破损帐篷。', 'warn');
+      return;
+    }
     if (!ok) {
       this.toast('普通气罐冻透了，火苗只有黄豆大，半天也没烧开。（把气罐揣在怀里，或者买高山气罐）', 'warn', 6000);
       return;
@@ -1838,6 +1971,7 @@ export class Game {
       if (!silent) this.toast('化了一锅雪水，趁热喝了下去。', 'good');
     }
     if (silent) this.toast('热水下肚，抖得没那么厉害了。', 'good');
+    this.save();
   }
 
   useWarmer() {
@@ -1921,6 +2055,11 @@ export class Game {
     }
     checkpoint();
     this.music?.stinger(type === 'dead' ? 'death' : type === 'rescued' ? 'rescue' : 'waypoint');
+    if (type === 'retreat_branch' && !st.story.threads.exitBranchRecorded) {
+      const def = branches[st.path]?.def;
+      st.story.threads.exitBranchRecorded = st.path;
+      st.story.resolutions.push({ title: def?.name || '支线下撤', text: `你走到了${def?.endName || '游戏接触点'}。连接、里程和抵达后的接应仅是虚构游戏结果；真实报道不证明该路线可以走通。` });
+    }
     const fates = [];
     for (const [id, ns] of Object.entries(st.npcs)) {
       const def = npcById(id);
@@ -1969,6 +2108,7 @@ export class Game {
       progress: Number(stats.progress), dist: Number(stats.dist), days: stats.days, maxAlt: stats.maxAlt,
       minCore: Number(stats.minCore), realMin: realMin, nights: stats.nights,
       saved: fates.filter((f) => okFates.includes(f.fate)).length, lost: fates.filter((f) => f.fate === 'died').length,
+      exitBranch: type === 'retreat_branch' ? st.path : null,
       epilogues, decisions: st.story.decisions.slice(-12), resolutions: st.story.resolutions,
     });
     const sum = summarize(records);
@@ -2037,7 +2177,7 @@ export class Game {
     let vis = this.visibility() + this.cam.dist * 0.9;
     const ry = this.player.rotation.y;
     const fwd = { x: Math.sin(ry), z: Math.cos(ry) };
-    const lampOn = st.lampOn && has(st, 'headlamp') && st.bat.headlamp > 0 && !(inCamp && !st.camp.bivy);
+    const lampOn = st.lampOn && has(st, 'headlamp') && st.bat.headlamp > 0;
     const exp = inCamp && !st.camp?.bivy ? 0.3 : this.exposure();
     // 脚印：在雪地上每走一步留一个
     let footstep = null;
@@ -2125,7 +2265,7 @@ export class Game {
       windRel: Math.atan2(-Math.sin((wx.dirDeg * Math.PI) / 180), Math.cos((wx.dirDeg * Math.PI) / 180)) - (this.cam.yaw + Math.PI),
       alt: Math.round(voxToAlt(this.pos.y)),
       km: st.path === 'main' ? st.s * KM_PER_UNIT : st.s * KM_PER_UNIT,
-      route: st.flags.freeDescent ? '自行下撤' : st.path === 'main' ? (st.dir > 0 ? '鳌山 → 太白' : '下撤 → 塘口') : '南坡下撤 → 核桃坪',
+      route: st.flags.freeDescent ? '自行下撤' : st.path === 'main' ? (st.dir > 0 ? '鳌山 → 太白' : '下撤 → 塘口') : path.def.name,
       total: st.path === 'main' ? mainPath.length * KM_PER_UNIT : path.length * KM_PER_UNIT,
       next: st.flags.freeDescent ? null : next,
       core: b.core, coreFeel: coreFeel(b.core), showCore: !!this.role.mods.showCore,
@@ -2148,7 +2288,7 @@ export class Game {
   // ———————————————————— 杂项 ————————————————————
   placeName() {
     const st = this.st;
-    if (st.path !== 'main') return '南坡林中';
+    if (st.path !== 'main') return branches[st.path].def.name + '途中';
     let best = null, bd = 1e9;
     for (const wp of mainPath.waypoints) { const d = Math.abs(wp.s - st.s); if (d < bd) { bd = d; best = wp; } }
     return bd < 40 ? best.name + '附近' : best.name + '一带的山脊上';

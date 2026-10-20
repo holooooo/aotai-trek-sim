@@ -401,3 +401,23 @@ a { color: var(--blue); }
 .poll-actions .sbtn, .privacy-controls .sbtn { min-height:44px; }
 .privacy-controls { font-size:11px; line-height:1.5; color:var(--muted); margin:8px 0 16px; }
 .privacy-controls p { margin:0 0 8px; }
+
+/* 背包状态：分件衣物、食物效果与头灯模式 */
+.slot-tag { color: var(--muted); font-size: 11px; margin-left: 5px; font-family: var(--mono); }
+.wet-mid { color: var(--yellow); }
+.wet-high { color: var(--red); }
+.pressure-tip { margin-top: 6px; padding-left: 8px; border-left: 2px solid var(--blue); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.clothing-note, .empty-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 6px; }
+.food-effects { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin: 6px 0 2px; }
+.effect-label { color: var(--muted); font-size: 12px; margin-right: 2px; }
+.effect-chip { display: inline-flex; min-height: 24px; align-items: center; padding: 2px 7px; color: var(--ink2); border: 1px solid var(--line2); background: rgba(255, 194, 58, .08); font-size: 12px; }
+.mode-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+.dry-tip { border-color: var(--green); }
+
+@media (max-width: 640px) {
+  .clothing-sec .row { align-items: flex-start; }
+  .clothing-sec .row .l { padding-top: 4px; }
+  .clothing-sec .row .r { flex-wrap: wrap; justify-content: flex-end; }
+  .mode-buttons .sbtn { min-width: 52px; padding-left: 7px; padding-right: 7px; }
+  .campbox .dry-tip { margin-top: 8px; }
+}
