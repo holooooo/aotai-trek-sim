@@ -7,7 +7,7 @@ import { ITEMS } from '../src/data/items.js';
 import { EVENTS } from '../src/data/events.js';
 import { EXPANDED_EVENTS } from '../src/data/events-expanded.js';
 import { REPORTED_EVENTS } from '../src/data/events-reported.js';
-import { chooseEvent, completeEvent, AMBIENT_GAP } from '../src/sim/event-director.js';
+import { chooseEvent, completeEvent, AMBIENT_GAP, ensureEventPacing, DIALOG_GAP } from '../src/sim/event-director.js';
 import { collectEpilogues, ensureStoryState } from '../src/sim/stories.js';
 import { addRecord, summarize, loadRecords } from '../src/sim/records.js';
 
@@ -19,6 +19,8 @@ function fixture(role = 'nurse') {
   Object.assign(g.st, { time: 1600, s: 600, maxS: 600, warmers: 8, thermos: { l: 1, temp: 80 }, companions: ['mou'], npcs: { mou: { following: true, met: true, cond: 90, fate: 'together' } } });
   for (const id of Object.keys(ITEMS)) if (!['water', 'gas', 'warmer'].includes(ITEMS[id].kind)) g.st.inv[id] = 2;
   g.st.flags.gateDone = true;
+  g.st.stats.walked = 300;
+  Object.assign(ensureEventPacing(g.st), {elapsed:200,nextAmbientAt:0});
   g.wx = () => ({ wind: 20, severity: 0.8, precip: 0.8, overcast: 0.8 });
   g.signal = () => 2; g.airT = () => -20; g.daylight = () => true; g.foggy = () => true; g.night = () => true;
   g.isWalking = () => true; g.onExposedRidge = () => true; g.over = false;
@@ -50,10 +52,13 @@ test('director protects urgent events and respects global/camp cooldowns', () =>
   const urgent = { id: 'undress', once: false, cooldown: 240, cond: () => true };
   assert.equal(chooseEvent([normal, urgent], g).id, 'undress');
   completeEvent(g.st, urgent);
+  assert.equal(chooseEvent([normal, urgent], g), null);
+  g.st.story.pacing.elapsed += DIALOG_GAP + 45;
   assert.equal(chooseEvent([normal, urgent], g).id, 'normal');
   completeEvent(g.st, normal);
   assert.equal(chooseEvent([{ ...normal, id: 'other' }], g), null);
   g.st.time += AMBIENT_GAP;
+  g.st.story.pacing.elapsed += DIALOG_GAP + 45;
   g.st.camp = { inside: true };
   assert.equal(chooseEvent([{ ...normal, id: 'other' }], g), null);
   assert.equal(chooseEvent([{ ...normal, id: 'other', allowCamp: true }], g).id, 'other');

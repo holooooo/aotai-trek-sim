@@ -141,49 +141,59 @@
   .hud-left .alerts { left: 264px; transform: none; width: calc(100vw - var(--sal) - var(--sar) - 276px - 200px); top: 92px; justify-content: flex-start; }
 }
 
-/* —— 竖屏手机 —— */
+/* —— 竖屏手机（9:16 主验收：360×640 / 390×693 / 540×960；390×844 兼容）—— */
 @media (max-width: 640px) and (orientation: portrait) {
-  .hud-left { left: calc(var(--sal) + 8px); right: calc(var(--sar) + 8px); top: calc(var(--sat) + 8px); width: auto; gap: 6px; }
-  .device { padding: 6px 10px 7px; display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
-  .dev-top { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .dev-clock b { font-size: 32px; }
+  .hud-left { left: calc(var(--sal) + 6px); right: calc(var(--sar) + 6px); top: calc(var(--sat) + 6px); width: auto; gap: 5px; }
+  .device { padding: 5px 9px 6px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+  .dev-top { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .dev-clock b { font-size: 26px; }
   .dev-clock small { display: none; }
   .dev-wx { flex-direction: row; align-items: center; gap: 4px; }
-  .dev-wx span { font-size: 13px; }
-  .dev-grid { margin-top: 0; border-top: 0; padding-top: 0; border-left: 1px dashed rgba(255, 255, 255, 0.1); padding-left: 10px; }
-  .dev-grid b { font-size: 18px; }
-  .dial { width: 24px; height: 24px; }
-  .hud-left .route { top: auto; position: relative; left: auto; right: auto; transform: none; width: auto; padding: 5px 10px 6px; }
-  .route-head span { font-size: 12px; }
-  .route-head b { font-size: 17px; }
-  .route-bar { margin: 3px 0 2px; }
-  .vitals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 8px; padding: 6px 8px; }
-  .vital { grid-template-columns: 14px 1fr 26px; gap: 4px; }
+  .dev-wx span { font-size: 12px; }
+  .dev-grid { margin-top: 0; border-top: 0; padding-top: 0; border-left: 1px dashed rgba(255, 255, 255, 0.1); padding-left: 8px; gap: 0; }
+  .dev-grid small { font-size: 9px; }
+  .dev-grid b { font-size: 14px; }
+  .dial { width: 18px; height: 18px; }
+  .hud-left .route { top: auto; position: relative; left: auto; right: auto; transform: none; width: auto; padding: 4px 9px 5px; }
+  .route-head span { font-size: 11px; }
+  .route-head b { font-size: 14px; }
+  .route-bar { margin: 3px 0 2px; height: 12px; }
+  .route-next { font-size: 10px; }
+  .route-next b { font-size: 11px; }
+  .route-next .mono { font-size: 12px; }
+  .vitals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px 6px; padding: 5px 8px; }
+  .vital { grid-template-columns: 12px 1fr 24px; gap: 3px; }
   .vital .lb { display: none; }
-  .vital .num { font-size: 15px; white-space: nowrap; }
-  .vital[data-v="core"] { grid-column: span 2; grid-template-columns: 14px 1fr auto; }
-  .vital[data-v="core"] .num { font-family: var(--display); font-size: 13px; }
-  .vital .bar { height: 6px; }
-  .vital .bar::after { background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(9, 14, 19, 0.95) 6px 7px); }
+  .vital .num { font-size: 12px; white-space: nowrap; }
+  .vital[data-v="core"] { grid-column: span 2; grid-template-columns: 12px 1fr auto; }
+  .vital[data-v="core"] .num { font-family: var(--display); font-size: 11px; }
+  .vital .bar { height: 5px; }
+  .vital .bar::after { background: repeating-linear-gradient(90deg, transparent 0 5px, rgba(9, 14, 19, 0.95) 5px 6px); }
   .chips { grid-column: 1 / -1; margin-top: 0; }
-  .chips span { font-size: 10px; line-height: 16px; padding: 0 4px; }
+  .chips span { font-size: 10px; line-height: 15px; padding: 0 4px; }
   .comp { grid-column: 1 / -1; }
-  .hud-right { top: auto; bottom: calc(var(--sab) + 214px); right: calc(var(--sar) + 8px); }
+  .hud-right { top: auto; bottom: calc(var(--sab) + 176px); right: calc(var(--sar) + 6px); }
   .ibtns { flex-direction: column; gap: 6px; }
-  .ibtn { width: 48px; height: 48px; }
+  .ibtn { width: 46px; height: 46px; }
+  .ibtn span { font-size: 10px; }
   .hud-right .phone { display: none; }
-  .hud-left .alerts { position: relative; top: auto; left: auto; transform: none; width: auto; justify-content: flex-start; }
-  .actions { right: calc(var(--sar) + 8px); bottom: calc(var(--sab) + 10px); gap: 6px; }
-  .act-row { gap: 6px; }
-  .abtn { width: 54px; height: 50px; font-size: 13px; }
-  .abtn.big { width: 76px; height: 68px; font-size: 16px; }
+  .hud-left .alerts { position: relative; top: auto; left: auto; transform: none; width: auto; justify-content: flex-start; gap: 4px; }
+  .pill { font-size: 11px; padding: 2px 8px; }
+  .pill b { font-size: 14px; }
+  /* 动作区：竖屏单手可触达，扎营/速穿/稳住/沿路走常驻，次要动作进「更多」 */
+  .actions { right: calc(var(--sar) + 6px); bottom: calc(var(--sab) + 8px); gap: 6px; }
+  .act-row { display: grid; grid-template-columns: repeat(2, 72px); gap: 6px; }
+  .act-row-secondary { position: absolute; bottom: calc(100% + 8px); right: 0; grid-template-columns: repeat(3, 54px); }
+  .act-row-secondary .abtn { width: 54px; height: 48px; }
+  .abtn { width: 72px; height: 50px; font-size: 13px; }
+  .abtn.big { width: 72px; height: 62px; font-size: 15px; }
   .abtn kbd { display: none; }
   .keyhint { display: none; }
-  #toasts { top: auto; bottom: calc(var(--sab) + 196px); width: calc(100% - 80px); left: 8px; transform: none; align-items: flex-start; }
-  .gust { font-size: 34px; }
+  #toasts { top: auto; bottom: calc(var(--sab) + 158px); width: calc(100% - 74px); left: 6px; transform: none; align-items: flex-start; }
+  .gust { font-size: 30px; }
 }
 
-/* —— 横屏手机 —— */
+/* —— 横屏手机（兼容，不作为主要设计）—— */
 @media (max-height: 500px) and (orientation: landscape) {
   .hud-left { width: 214px; top: calc(var(--sat) + 8px); left: calc(var(--sal) + 8px); gap: 5px; }
   .device { padding: 5px 9px 6px; }
@@ -199,9 +209,9 @@
   .vital .num { font-size: 14px; }
   .vital .bar { height: 5px; }
   .chips { display: none; }
-  .hud-left .route { top: 0; left: 224px; transform: none; width: calc(100vw - var(--sal) - var(--sar) - 232px - 186px); padding: 4px 10px 5px; }
+  .hud-left .route { top: 0; left: 224px; transform: none; width: calc(100vw - var(--sal) - var(--sar) - 232px - 232px); padding: 4px 10px 5px; }
   .route-next { display: none; }
-  .hud-left .alerts { top: 46px; left: 224px; transform: none; width: calc(100vw - var(--sal) - var(--sar) - 232px - 186px); justify-content: flex-start; }
+  .hud-left .alerts { top: 46px; left: 224px; transform: none; width: calc(100vw - var(--sal) - var(--sar) - 232px - 232px); justify-content: flex-start; }
   .hud-right { top: calc(var(--sat) + 8px); right: calc(var(--sar) + 8px); }
   .hud-right .phone { display: none; }
   .ibtn { width: 46px; height: 46px; }
@@ -209,4 +219,18 @@
   .abtn.big { width: 76px; height: 60px; font-size: 16px; }
   .abtn kbd, .keyhint { display: none; }
   #toasts { top: calc(var(--sat) + 84px); width: min(440px, 52vw); }
+}
+
+/* 原生对话期间冻结操作；保留顶部关键体征，让出运镜目标。 */
+#hud:not(.compact) [data-act="hudmore"] { display: none; }
+#hud.ui-blocked .hud-right, #hud.ui-blocked .actions, #joy.ui-blocked { visibility: hidden; pointer-events: none; }
+#hud.dialog-mode .route, #hud.dialog-mode .chips, #hud.dialog-mode .comp, #hud.dialog-mode .alerts { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .vital.crit, .pill.lost, .abtn.hold.alert { animation: none; }
+}
+
+/* 默认不展开整段路线尺：里程与下一站仍然可读。 */
+@media (max-width: 640px) and (orientation: portrait) {
+  #hud.compact:not(.hud-more) .route-bar { display: none; }
+  .dev-wx .ico { width: 16px; height: 16px; }
 }

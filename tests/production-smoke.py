@@ -23,8 +23,6 @@ with sync_playwright() as p:
     page.locator('[data-act="go"]').click()
     assert '冬季装备检查' not in page.locator('#screen').inner_text()
     page.locator('[data-act="depart"]').click()
-    expect(page.locator('#dialog h3')).to_have_text('塘口村 · 凌晨5:30')
-    page.keyboard.press('1')
     expect(page.locator('#dialog.open')).to_have_count(0)
     button = page.locator('[data-act="pace"]')
     expect(button).to_be_visible()

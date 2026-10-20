@@ -331,15 +331,38 @@ a { color: var(--blue); }
   .items { grid-template-columns: 1fr; }
   .end-grid { grid-template-columns: repeat(2, 1fr); }
   .case { grid-template-columns: 1fr; gap: 4px; }
-  .dlg-head h3 { font-size: 24px; }
+  .dlg-head h3 { font-size: 22px; }
   #dialog { align-items: flex-end; padding: 10px 10px calc(var(--sab) + 10px); }
-  .drawer, .drawer.wide { width: 100%; border-left: 0; }
+  /* 对话/背包/地图/更多面板：限高可滚动，不越出屏幕 */
+  .drawer, .drawer.wide { width: 100%; border-left: 0; max-height: min(72dvh, calc(100dvh - var(--sat) - var(--sab) - 16px)); top: auto; bottom: 0; }
+  .drawer-head { padding-top: calc(var(--sat) + 8px); padding-bottom: 8px; }
+  .drawer-head h3 { font-size: 20px; }
+  #dialog { background: linear-gradient(180deg, transparent 0 42%, rgba(4, 7, 10, .32) 70%); padding: 6px 8px calc(var(--sab) + 8px); }
+  .dlg { max-height: 50dvh; display: flex; flex-direction: column; overflow: hidden; }
+  .dlg-head { flex: none; padding: 8px 12px 6px; }
+  .dlg-head h3 { font-size: 20px; }
+  .dlg-head .sub { font-size: 11px; }
+  .dlg-body { flex: 1 1 auto; min-height: 0; max-height: 18dvh; overflow-y: auto; padding: 8px 12px 2px; line-height: 1.5; -webkit-overflow-scrolling: touch; }
+  .dlg-body p { margin-bottom: 6px; }
+  .dlg-choices { flex: 0 1 auto; min-height: 50px; max-height: 30dvh; overflow-y: auto; padding: 6px 12px 12px; gap: 6px; -webkit-overflow-scrolling: touch; }
+  .choice { flex-shrink: 0; padding: 6px 10px; }
+  .drawer-head { flex: none; padding-top: 10px; }
+  .drawer-body { min-height: 0; }
+  .choice { min-height: 44px; }
+  .choice b { font-size: 16px; }
+  .sbtn { min-height: 44px; }
+  .btn { min-height: 44px; }
+  /* 营地面板限高，按钮不挤压出屏 */
+  .campbox { width: min(520px, calc(100% - 12px)); max-height: min(60dvh, calc(100dvh - var(--sat) - var(--sab) - 12px)); overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 12px; }
+  .campbox h4 { font-size: 18px; }
+  .campbox .btns .btn { min-height: 44px; }
 }
 
-/* 竖屏手机：摇杆 */
+/* 竖屏手机（9:16 主设计）：摇杆下沉收小，让出中央场景与右侧操作 */
 @media (max-width: 640px) and (orientation: portrait) {
-  #joy { width: 50vw; height: 46vh; }
-  #joyBase { width: 112px; height: 112px; left: calc(var(--sal) + 20px); bottom: calc(var(--sab) + 30px); }
+  #joy { width: 46vw; height: 40vh; }
+  #joyBase { width: 96px; height: 96px; left: calc(var(--sal) + 16px); bottom: calc(var(--sab) + 20px); }
+  #joyKnob { width: 46px; height: 46px; margin: -23px 0 0 -23px; }
 }
 
 /* 横屏矮屏（手机横持） */

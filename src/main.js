@@ -86,20 +86,9 @@ function startTrek(st, fresh) {
   ui.closeScreen();
   game.start(st);
   if (fresh) {
-    game.runEvent(async () => {
-      await game.dialog({
-        who: '塘口村 · 凌晨5:30', sub: '12月31日 · 元旦假期',
-        text: [
-          '天还没亮。村子里只有几声狗叫，远处的山脊在星光下是一道黑色的剪影。',
-          '从这里到太白山拔仙台，大约113公里山脊。没有补给点，大部分路段没有信号。',
-          mobile
-            ? '左下角拖动摇杆移动，右侧拖动屏幕转视角。点【沿路走】会自动沿路线前进。'
-            : 'WASD 移动，鼠标拖拽转视角，F 沿路走，空格按住稳住，B 背包，M 地图。',
-        ],
-        choices: [{ id: 'go', label: '出发' }],
-      });
-      game.toast('沿着路边的玛尼堆和红布条走。天黑、起雾时它们会很难看清。', 'info', 6000);
-    });
+    game.toast(mobile
+      ? '拖动左下摇杆移动 · 右侧划动转视角'
+      : 'WASD移动 · 拖拽转视角 · F沿路走', 'info', 6000);
   }
 }
 

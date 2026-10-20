@@ -73,8 +73,8 @@ with sync_playwright() as p:
     assert page.locator('.cart .checklist').count() == 0
     page.screenshot(path=str(OUT / 'shop-desktop.png'))
     page.locator('[data-act="depart"]').click()
-    pick(page, 'go')
     page.wait_for_function('window.__game.st && !__game.eventRunning')
+    expect(page.locator('#dialog.open')).to_have_count(0)
     assert page.evaluate('__game.st.body.health') > 190
     expect(page.locator('[data-v="health"]')).to_have_attribute('aria-label', '健康 200 / 200')
 

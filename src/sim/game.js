@@ -9,9 +9,11 @@ import { NPCS, npcById } from '../data/npcs.js';
 import { EVENTS } from '../data/events.js';
 import { EXPANDED_EVENTS } from '../data/events-expanded.js';
 import { REPORTED_EVENTS } from '../data/events-reported.js';
-import { chooseEvent, completeEvent } from './event-director.js';
+import { chooseEvent, completeEvent, advanceEventPacing, ensureEventPacing, recordDialog } from './event-director.js';
 import { ensureStoryState, collectEpilogues } from './stories.js';
 import { paceProfile } from './pace.js';
+import { EventCamera } from './event-camera.js';
+import { makeEventProp } from '../world/event-subjects.js';
 import { travelEnding, canFreeDescent } from './exits.js';
 import { difficultyProfile, maxHealth, ensureDifficulty } from './difficulty.js';
 import { weatherAt, windVectors, airTemp, sunElevation, beaufort, compassName } from './weather.js';
@@ -36,6 +38,8 @@ export class Game {
     this.st = null;
     this.cam = { yaw: 0, pitch: 0.42, dist: 9.5, idle: 0 };
     this.camTarget = new THREE.Vector3();
+    this.eventCamera = new EventCamera({ reducedMotion: globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false });
+    this._displayTarget = new THREE.Vector3();
     this.pos = new THREE.Vector3();
     this.npcRt = {};
     this.noteCd = {};
@@ -45,9 +49,12 @@ export class Game {
 
   // ———————————————————— 生命周期 ————————————————————
   start(st) {
+    this.eventCamera?.reset();
+    this.clearEventActor();
     this.st = st;
     ensureStoryState(st);
     ensureDifficulty(st);
+    ensureEventPacing(st);
     st.pace = st.pace === 'fast' ? 'fast' : 'walk';
     this.role = roleById(st.role);
     this.over = false;
@@ -91,7 +98,14 @@ export class Game {
     const fdx = p.dx * st.dir, fdz = p.dz * st.dir;
     this.cam.yaw = Math.atan2(-fdx, -fdz);
     this.player.rotation.y = Math.atan2(fdx, fdz);
-    this.camTarget.copy(this.pos);
+    this.camTarget.set(this.pos.x, this.pos.y + 1.5, this.pos.z);
+    if (this.world.camera) {
+      const { yaw, pitch, dist } = this.cam;
+      this.world.camera.position.set(this.camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist, this.camTarget.y + Math.sin(pitch) * dist, this.camTarget.z + Math.cos(yaw) * Math.cos(pitch) * dist);
+      this.world.camera.position.y = Math.max(this.world.camera.position.y, this.world.height(this.world.camera.position.x, this.world.camera.position.z) + 1.2);
+      this.world.camera.lookAt(this.camTarget);
+      this._displayTarget.copy(this.camTarget);
+    }
 
     // 恢复驴友与营地
     for (const [id, ns] of Object.entries(st.npcs)) {
@@ -105,6 +119,8 @@ export class Game {
   }
 
   dispose() {
+    this.eventCamera?.reset();
+    this.clearEventActor();
     for (const id of Object.keys(this.npcRt)) this._removeNpcMeshes(id);
     this.npcRt = {};
     if (this.player) { this.world.scene.remove(this.player); this.player = null; }
@@ -218,9 +234,13 @@ export class Game {
     if (canAct && !(this.st.camp && this.st.camp.inside)) this.updateMovement(dt);
     if (canAct) {
       this.restTimer = this.moving ? 0 : this.restTimer + dt;
-      this.simulate(dt * TIME_SCALE);
-      this.updateGust(dt);
-      this.checkTriggers(dt);
+      const pacing = advanceEventPacing(this.st, dt, this.moving);
+      // 未移动的新局只展示操作界面，不偷跑时间、扣资源或自动弹事件。
+      if (pacing.started) {
+        this.simulate(dt * TIME_SCALE);
+        this.updateGust(dt);
+        this.checkTriggers(dt);
+      }
     }
     this.updateNpcs(dt);
     this.updateVisuals(dt);
@@ -665,8 +685,9 @@ export class Game {
     }
     const exit = travelEnding(st, this.pos, { falling: this.falling, groundY: this.world.height(this.pos.x, this.pos.z) });
     if (exit) return this.finish(exit);
+    if (!ensureEventPacing(st).started) return;
     // 管护站
-    if (!st.flags.gateDone && st.path === 'main' && st.s > 30) return this.runEvent(() => this.gateScene());
+    if (!st.flags.gateDone && st.path === 'main' && st.s > 30) return this.runEvent(() => this.gateScene(), { focus: { landmark: 'gate' } });
     // 途经点
     if (st.path === 'main') {
       for (const wp of mainPath.waypoints) {
@@ -679,7 +700,7 @@ export class Game {
           this.addStress(-3);
           this.save();
           if (wp.end) return this.finish('cross');
-          if (wp.id === 'dayehai') return this.runEvent(() => this.dayehaiScene());
+          if (wp.id === 'dayehai') return this.runEvent(() => this.dayehaiScene(), { focus: { landmark: 'dayehai' } });
         }
       }
     }
@@ -692,7 +713,11 @@ export class Game {
       if (e.t - st.time < lead && e.t > st.time) {
         st.warned[e.t] = true;
         if (st.camp && st.camp.inside) continue;
-        return this.runEvent(() => this.weatherWarning(e));
+        const name = e.warn === 'fog' ? '大雾' : e.warn === 'gale' ? '大风' : '冷锋';
+        this.toast(`天气预警：${name}将至。提前评估避风、扎营或下撤。`, 'warn', 6000);
+        this.log(`天气预警：${name}将至`);
+        this.save();
+        break;
       }
     }
     // 日落提醒
@@ -732,7 +757,7 @@ export class Game {
       const ns = rt.ns;
       if (ns.met || ns.done || ns.following) continue;
       const d = Math.hypot(this.pos.x - ns.x, this.pos.z - ns.z);
-      if (d < 3.6) return this.runEvent(() => this.meetNpc(id));
+      if (d < 3.6) return this.runEvent(() => this.meetNpc(id), { focus: { npc: id } });
       if (ns.path === st.path && st.dir > 0 && st.s > ns.s + 36) {
         ns.done = true;
         ns.fate = PASS_FATE[id] ?? null;
@@ -767,7 +792,7 @@ export class Game {
       await this.runEvent(async () => {
         await ev.run(this);
         if (!this.over && this.st === st) completeEvent(st, ev);
-      }, { propagate: true });
+      }, { propagate: true, paced: true, focus: { event: ev.id } });
     } catch (error) {
       if (this.st === st && !this.over) {
         const restored = JSON.parse(this.eventSnapshot);
@@ -841,12 +866,81 @@ export class Game {
     return true;
   }
 
-  async runEvent(fn, { propagate = false } = {}) {
+  clearEventActor() {
+    if (this._eventActor) {
+      this.world.scene.remove(this._eventActor);
+      // 工厂材质共享，只释放本次临时模型独有的几何体。
+      this._eventActor.traverse((o) => o.geometry?.dispose());
+      this._eventActor = null;
+    }
+    this._eventFocus = null;
+  }
+
+  beginEventFocus(spec) {
+    if (!this.eventCamera || !this.world?.camera || !this.world?.scene || this.eventCamera.reducedMotion) return false;
+    this.clearEventActor();
+    let target, kind = 'self', id = spec.npc || spec.landmark || spec.event;
+    if (spec.object?.position) { target = spec.object.position.clone().add(new THREE.Vector3(0, 1.2, 0)); kind = 'object'; }
+    const npc = spec.npc && this.npcRt[spec.npc];
+    if (npc?.group) {
+      target = npc.group.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+      kind = 'npc';
+    }
+    const sites = { navtower: ['daohang', 5, 0, 3], plane: ['feiji', 7, 4, 1], leigong: ['leigong', 5, 1, 1.3], ridge_wind: ['aoliang', -3.2, 2, 1.8], gate: ['gate', 7, 0, 1.5], dayehai: ['dayehai', -7, 2, 1.5] };
+    const site = sites[spec.landmark || spec.event];
+    if (!target && site) {
+      const wp = mainPath.waypoints.find((w) => w.id === site[0]);
+      const p = mainPath.pointAt(wp.s), x = p.x - p.dz * site[1] + p.dx * site[2], z = p.z + p.dx * site[1] + p.dz * site[2];
+      const object = this.world.landmarks?.reduce((best, o) => !best || Math.hypot(o.position.x - x, o.position.z - z) < Math.hypot(best.position.x - x, best.position.z - z) ? o : best, null);
+      if (object && Math.hypot(object.position.x - this.pos.x, object.position.z - this.pos.z) < 40) {
+        target = object.position.clone().add(new THREE.Vector3(0, site[3], 0)); kind = 'landmark';
+      }
+    }
+    const companionEvents = new Set(['shared_load', 'reported_solo_probe']);
+    if (!target && companionEvents.has(spec.event)) {
+      const rt = this.st.companions.map((n) => this.npcRt[n]).find((r) => r?.group && !r.ns.dead);
+      if (rt) { target = rt.group.position.clone().add(new THREE.Vector3(0, 1.2, 0)); kind = 'npc'; }
+    }
+    if (!target && spec.event === 'windproof_lash' && this.tentMesh) { target = this.tentMesh.position.clone().add(new THREE.Vector3(0, .8, 0)); kind = 'object'; }
+    const props = new Set(['takin', 'loose_marker', 'false_trail']);
+    const visitors = new Set(['hot_water_share', 'mutual_followup', 'coder_overload', 'reported_last_seen']);
+    if (!target && (visitors.has(spec.event) || props.has(spec.event) || spec.event === 'old_tent')) {
+      const yaw = this.cam.yaw;
+      for (const side of [1.8, -1.8, 0]) {
+        const x = this.pos.x + Math.sin(yaw) * 3.5 + Math.cos(yaw) * side;
+        const z = this.pos.z + Math.cos(yaw) * 3.5 - Math.sin(yaw) * side;
+        const y = this.world.height(x, z);
+        if (!Number.isFinite(y) || Math.abs(y - this.pos.y) > 2.2) continue;
+        const actor = props.has(spec.event) ? makeEventProp(spec.event) : spec.event === 'old_tent' ? makeCollapsedTent(0x8b8879) : makeCharacter({ jacket: 0xc18b50, hat: 0xd6d0ba, pack: 0x454f50 });
+        actor.position.set(x, y, z); actor.rotation.y = Math.atan2(this.pos.x - x, this.pos.z - z);
+        actor.userData.eventVisitor = visitors.has(spec.event);
+        this._eventActor = this.world.shadowify(actor); this.world.scene.add(actor);
+        target = actor.position.clone().add(new THREE.Vector3(0, spec.event === 'old_tent' ? .5 : 1.2, 0)); kind = visitors.has(spec.event) ? 'visitor' : 'object';
+        break;
+      }
+    }
+    target ||= this.pos.clone().add(new THREE.Vector3(0, 1.2, 0));
+    const ok = this.eventCamera.focus(target, { position: this.world.camera.position, lookAt: this._displayTarget || this.camTarget, player: this.pos });
+    if (ok) this._eventFocus = { kind, id, target: target.clone() };
+    else this.clearEventActor();
+    return ok;
+  }
+
+  async runEvent(fn, { propagate = false, focus = null, paced = false } = {}) {
     if (this.eventRunning) return;
+    const st = this.st, serial = this._dialogSerial || 0;
     this.eventRunning = true;
+    const focused = focus ? this.beginEventFocus?.(focus) : false;
     try { await fn(); }
     catch (e) { console.error(e); if (propagate) throw e; }
-    finally { this.eventRunning = false; }
+    finally {
+      if (this.st === st) {
+        if (!paced && !this.over && (this._dialogSerial || 0) !== serial) recordDialog(st);
+        if (focused) this.eventCamera?.end();
+        if (this.over) { this.eventCamera?.reset(); this.clearEventActor(); }
+        this.eventRunning = false;
+      }
+    }
   }
 
   async gateScene() {
@@ -1022,6 +1116,13 @@ export class Game {
   updateNpcs(dt) {
     const st = this.st;
     if (!st) return;
+    if (this.eventRunning) {
+      for (const rt of Object.values(this.npcRt)) {
+        const pose = rt.ns.dead ? 'lie' : rt.ns.following ? (this.st.camp?.inside ? 'sit' : 'stand') : rt.def.pose;
+        rt.chars?.forEach((c) => animateCharacter(c, dt, false, 1, pose));
+      }
+      return;
+    }
     let idx = 0;
     for (const [id, rt] of Object.entries(this.npcRt)) {
       const ns = rt.ns;
@@ -1876,7 +1977,8 @@ export class Game {
     animateCharacter(this.player, dt, this.moving, this.speedFactor(), pose);
 
     // 相机
-    const cd = this.input.cameraDelta();
+    const rawCamera = this.input.cameraDelta();
+    const cd = this.eventCamera?.active ? { active: false, dx: 0, dy: 0, zoom: 1 } : rawCamera;
     if (cd.active) this.cam.idle = 0; else this.cam.idle += dt;
     this.cam.yaw -= cd.dx * 0.006;
     this.cam.pitch = clamp(this.cam.pitch + cd.dy * 0.004, 0.06, 1.35);
@@ -1886,7 +1988,7 @@ export class Game {
       this.cam.yaw = lerpAngle(this.cam.yaw, want, Math.min(1, dt * 0.8));
     }
     const focus = inCamp && !st.camp.bivy ? new THREE.Vector3(st.camp.x, this.world.height(st.camp.x, st.camp.z), st.camp.z) : this.pos;
-    if (inCamp && !st.camp.bivy && this.cam.idle > 3) this.cam.yaw += dt * 0.05;
+    if (inCamp && !st.camp.bivy && this.cam.idle > 3 && !this.eventCamera?.active) this.cam.yaw += dt * 0.05;
     this.camTarget.lerp(new THREE.Vector3(focus.x, focus.y + 1.5, focus.z), Math.min(1, dt * 8));
     const cp = this.cam.pitch, cy = this.cam.yaw, dist = this.cam.dist;
     const camPos = new THREE.Vector3(
@@ -1894,12 +1996,18 @@ export class Game {
       this.camTarget.y + Math.sin(cp) * dist,
       this.camTarget.z + Math.cos(cy) * Math.cos(cp) * dist,
     );
+    const eventShot = this.eventCamera?.sample(dt, camPos, this.camTarget);
+    if (eventShot) camPos.copy(eventShot.position);
+    const lookAt = eventShot?.target || this.camTarget;
     const gh = this.world.height(camPos.x, camPos.z) + 1.2;
     if (camPos.y < gh) camPos.y = gh;
     if (this.gust.push > 0) camPos.x += (Math.random() - 0.5) * 0.15;
     if (st.body.shiver > 0.6) camPos.y += (Math.random() - 0.5) * 0.04 * st.body.shiver;
     this.world.camera.position.copy(camPos);
-    this.world.camera.lookAt(this.camTarget);
+    this.world.camera.lookAt(lookAt);
+    this._displayTarget.copy(lookAt);
+    if (!this.eventCamera?.active && this._eventFocus) this.clearEventActor();
+    if (this._eventActor?.userData.eventVisitor) animateCharacter(this._eventActor, dt, false, 1, 'stand');
 
     // 区块
     this.world.ensureChunks(this.pos.x, this.pos.z, this.world.mobile ? 5 : 8);
@@ -2055,8 +2163,15 @@ export class Game {
   }
 
   toast(text, kind = 'info', ms) { this.ui.toast(text, kind, ms); }
-  dialog(opts) { return this.ui.dialog(opts); }
-  say(who, text, ok = '继续') { return this.ui.dialog({ who, text, choices: [{ id: 'ok', label: ok }] }); }
+  async dialog(opts) {
+    const st = this.st;
+    if (this._eventFocus?.id === 'hallucination' && this.world.hallu?.visible) this.beginEventFocus({ object: this.world.hallu, event: 'hallucination' });
+    this._dialogSerial = (this._dialogSerial || 0) + 1;
+    const result = await this.ui.dialog(opts);
+    if (!this.eventRunning && this.st === st && !this.over) recordDialog(st);
+    return result;
+  }
+  say(who, text, ok = '继续') { return this.dialog({ who, text, choices: [{ id: 'ok', label: ok }] }); }
 
   save() {
     if (!this.st || this.over) return;

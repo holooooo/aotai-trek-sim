@@ -69,7 +69,13 @@ export class UI {
   }
 
   get modalOpen() { return this.dialogOpen || !!this.sheetOpen || !!this.screenOpen; }
-  _syncInput() { this.input?.setEnabled(!this.modalOpen); }
+  get compactHud() { return this.isMobile || matchMedia('(max-width: 640px) and (orientation: portrait)').matches; }
+  _syncInput() {
+    this.input?.setEnabled(!this.modalOpen);
+    this.el.hud.classList.toggle('ui-blocked', !!this.modalOpen);
+    this.el.hud.classList.toggle('dialog-mode', this.dialogOpen);
+    this.el.joy.classList.toggle('ui-blocked', !!this.modalOpen);
+  }
 
   // 简单事件委托：data-act
   _bind(root, handlers) {
@@ -378,7 +384,7 @@ export class UI {
           <div class="route-next" data-h="next"></div>
         </div>
           <div class="vitals hcard">
-            ${VITALS.map(([k, n]) => `<div class="vital" data-v="${k}">${icon(VITAL_ICON[k], { size: 16 })}<span class="lb">${n}</span><div class="bar"><i></i></div><span class="num"></span></div>`).join('')}
+            ${VITALS.map(([k, n]) => `<div class="vital ${['food', 'water', 'stress', 'wet'].includes(k) ? 'vital-secondary' : ''}" data-v="${k}" aria-label="${n}">${icon(VITAL_ICON[k], { size: 16 })}<span class="lb">${n}</span><div class="bar"><i></i></div><span class="num"></span></div>`).join('')}
             <div class="chips"></div>
             <div class="comp" hidden></div>
           </div>
@@ -393,23 +399,23 @@ export class UI {
             <button class="ibtn" data-act="pack" title="背包 B">${icon('pack', { size: 24 })}<span>背包</span></button>
             <button class="ibtn" data-act="map" title="地图 M">${icon('map', { size: 24 })}<span>地图</span></button>
             <button class="ibtn" data-act="menu" title="菜单 Esc">${icon('menu', { size: 24 })}<span>菜单</span></button>
+            <button class="ibtn more" data-act="hudmore" title="展开/收起次要信息" aria-expanded="false" aria-controls="hudSecondary">${icon('rest', { size: 24 })}<span data-h="moreLabel">更多</span></button>
           </div>
           <div class="pill phone" data-h="phone"></div>
         </div>
         <div class="actions">
-          <div class="act-row">
+          <div class="act-row act-row-secondary" id="hudSecondary" data-h="actSecondary">
             <button class="abtn" data-act="rest">${icon('rest', { size: 20 })}休息<kbd>R</kbd></button>
-            <button class="abtn" data-act="camp">${icon('camp', { size: 20 })}扎营<kbd>C</kbd></button>
             <button class="abtn" data-act="retreat">${icon('retreat', { size: 20 })}下撤<kbd>X</kbd></button>
             <button class="abtn sos" data-act="sos">${icon('sos', { size: 20, accent: '#e5383b' })}求救<kbd>H</kbd></button>
           </div>
           <div class="act-row">
+            <button class="abtn" data-act="camp">${icon('camp', { size: 20 })}扎营<kbd>C</kbd></button>
             <button class="abtn" data-act="pace" title="切换速穿 V" aria-pressed="false">${icon('walk', { size: 20 })}<span data-h="paceLabel">速穿</span><kbd>V</kbd></button>
             <button class="abtn big hold" data-hold="crouch">${icon('brace', { size: 26 })}稳住<kbd>␣</kbd></button>
             <button class="abtn big" data-act="auto">${icon('auto', { size: 26 })}沿路走<kbd>F</kbd></button>
           </div>
-        </div>
-        ${this.isMobile ? '' : '<div class="keyhint"><span><kbd>WASD</kbd>移动</span><span><kbd>拖拽</kbd><kbd>Q</kbd><kbd>E</kbd>视角</span><span><kbd>F</kbd>沿路走</span><span><kbd>V</kbd>速穿</span><span><kbd>空格</kbd>稳住</span><span><kbd>B</kbd>背包</span><span><kbd>M</kbd>地图</span></div>'}
+        </div>        ${this.isMobile ? '' : '<div class="keyhint"><span><kbd>WASD</kbd>移动</span><span><kbd>拖拽</kbd><kbd>Q</kbd><kbd>E</kbd>视角</span><span><kbd>F</kbd>沿路走</span><span><kbd>V</kbd>速穿</span><span><kbd>空格</kbd>稳住</span><span><kbd>B</kbd>背包</span><span><kbd>M</kbd>地图</span></div>'}
         <div class="gust">阵　风<small>按住【稳住】</small></div>`;
       this.h = {};
       hud.querySelectorAll('[data-h]').forEach((e) => { this.h[e.dataset.h] = e; });
@@ -434,10 +440,31 @@ export class UI {
         camp: () => this.app.camp(),
         retreat: () => this.app.retreat(),
         sos: () => this.app.sos(),
+        hudmore: () => this.toggleHudMore(),
       });
     }
+    hud.classList.toggle('compact', this.compactHud);
+    const expanded = !this.compactHud || hud.classList.contains('hud-more');
+    hud.querySelector('.vitals').hidden = false;
+    hud.querySelector('.alerts').hidden = false;
+    hud.querySelectorAll('.vital-secondary').forEach((e) => { e.hidden = !expanded; });
+    this.h.actSecondary.hidden = !expanded;
     hud.hidden = false;
     this.el.joy.hidden = !this.isMobile;
+  }
+
+  toggleHudMore() {
+    const hud = this.el.hud;
+    const on = !hud.classList.contains('hud-more');
+    hud.classList.toggle('hud-more', on);
+    const btn = hud.querySelector('[data-act="hudmore"]');
+    if (btn) {
+      btn.setAttribute('aria-expanded', String(on));
+      const label = btn.querySelector('[data-h="moreLabel"]');
+      if (label) label.textContent = on ? '收起' : '更多';
+    }
+    if (this._lastHud) this.hud(this._lastHud);
+    this.audio?.click();
   }
 
   _set(el, html) { if (el._v !== html) { el._v = html; el.innerHTML = html; } }
@@ -467,6 +494,9 @@ export class UI {
     const showTicks = d.onMain;
     for (const t of this.hTicks) { t.style.display = showTicks ? '' : 'none'; t.classList.toggle('seen', !!d.visited[t.dataset.wp]); }
     this._set(h.next, d.next ? `<span>下一站 <b>${esc(d.next.name)}</b></span><span class="mono">${d.next.km.toFixed(1)} km</span>` : '');
+    const hudCollapsed = this.compactHud && !this.el.hud.classList.contains('hud-more');
+    this.el.hud.classList.toggle('compact', this.compactHud);
+    h.actSecondary.hidden = hudCollapsed;
     h.gps.hidden = !d.gpsArrow;
     if (d.gpsArrow) h.gps.innerHTML = `${ICON_ARROW.replace('class="navarrow"', `class="navarrow" style="transform:rotate(${-d.gpsArrow.rel}rad)"`)}GPS ${d.gpsArrow.off > 80 ? `偏离 <b>${d.gpsArrow.off}</b>m` : '在轨迹上'}`;
     h.lost.hidden = !d.status.lost;
@@ -483,6 +513,7 @@ export class UI {
       v.bar.style.setProperty('--c', color);
       if (v.num.textContent !== String(num)) v.num.textContent = num;
       v.root.classList.toggle('crit', !!crit);
+      v.root.hidden = hudCollapsed && v.root.classList.contains('vital-secondary') && !crit;
     };
     const coreColor = d.core >= 36.3 ? 'var(--green)' : d.core >= 35 ? 'var(--yellow)' : 'var(--red)';
     set('core', ((d.core - 30) / 7) * 100, d.showCore ? d.core.toFixed(1) : d.coreFeel, coreColor, d.core < 35);
@@ -511,10 +542,13 @@ export class UI {
     if (s.drunk) chips.push(['酒精', 'w']);
     if (s.warmer) chips.push(['暖宝宝', 'g']);
     chips.push([d.insul ? '穿着保暖层' : d.hasInsul ? '未穿保暖层' : '无保暖层', d.insul ? 'g' : 'w']);
-    this._set(this.hChips, chips.map(([t, c]) => `<span class="${c}">${t}</span>`).join(''));
+    const visibleChips = hudCollapsed ? chips.filter(([t,c]) => c !== 'g' && !['未穿保暖层', '无保暖层'].includes(t)).slice(0, 2) : chips;
+    this.hChips.hidden = visibleChips.length === 0;
+    this._set(this.hChips, visibleChips.map(([t, c]) => `<span class="${c}">${t}</span>`).join(''));
 
-    this.hComp.hidden = d.companions.length === 0;
-    this._set(this.hComp, d.companions.map((c) => `<div class="vital ${c.cond < 20 ? 'crit' : ''}">${icon('walk', { size: 16 })}<span class="lb">${esc(c.name)}</span><div class="bar"><i style="width:${c.cond}%;--c:${c.cond > 50 ? 'var(--green)' : c.cond > 25 ? 'var(--yellow)' : 'var(--red)'}"></i></div><span class="num">${Math.round(c.cond)}</span></div>`).join(''));
+    const visibleCompanions = hudCollapsed ? d.companions.filter((c) => c.cond < 20) : d.companions;
+    this.hComp.hidden = visibleCompanions.length === 0;
+    this._set(this.hComp, visibleCompanions.map((c) => `<div class="vital ${c.cond < 20 ? 'crit' : ''}">${icon('walk', { size: 16 })}<span class="lb">${esc(c.name)}</span><div class="bar"><i style="width:${c.cond}%;--c:${c.cond > 50 ? 'var(--green)' : c.cond > 25 ? 'var(--yellow)' : 'var(--red)'}"></i></div><span class="num">${Math.round(c.cond)}</span></div>`).join(''));
 
     this.hAuto.classList.toggle('on', d.auto);
     this.hPace.classList.toggle('on', !!d.fast);
