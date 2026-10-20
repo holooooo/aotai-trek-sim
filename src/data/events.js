@@ -64,7 +64,7 @@ export const EVENTS = [
         ],
       });
       if (c === 'shoot') {
-        await g.passTime(15);
+        if (!await g.eventPause(15)) return;
         if (g.roll(0.12 + g.windDanger() * 0.25)) {
           await g.fall(6 + Math.random() * 10, '你在崖边被一阵风吹得失去平衡。');
         } else {
@@ -74,7 +74,7 @@ export const EVENTS = [
           g.st.body.frostbite += 6;
         }
       } else if (c === 'safe') {
-        await g.passTime(5);
+        if (!await g.eventPause(5)) return;
         g.addStress(-3);
       }
     },
@@ -131,7 +131,7 @@ export const EVENTS = [
         ],
       });
       if (c === 'go') {
-        g.st.body.stress += 6;
+        g.addStress(6);
         g.setLure(spot);
         g.toast('你朝着光走去……', 'danger');
       } else {
@@ -180,7 +180,7 @@ export const EVENTS = [
           { id: 'run', label: '转身就跑' },
         ],
       });
-      if (c === 'back') { await g.passTime(25); g.addStress(5); g.toast('你绕了一大圈，羚牛没有追来。', 'good'); }
+      if (c === 'back') { if (!await g.eventPause(25)) return; g.addStress(5); g.toast('你绕了一大圈，羚牛没有追来。', 'good'); }
       else if (c === 'shout') {
         if (g.roll(0.5)) { g.addStress(8); g.toast('羚牛甩甩头，慢吞吞地走开了。', 'info'); }
         else { g.hurt(18, 'injury'); g.addStress(18); g.toast('羚牛冲了过来！你被顶翻在雪地里。', 'danger'); }
@@ -203,13 +203,13 @@ export const EVENTS = [
         choices: [
           { id: 'call', label: '给家里打个电话', sub: '压力 -15，耗电' },
           { id: 'sos', label: '报警求救', sub: '说明你的位置，等待救援' },
-          { id: 'live', label: '开直播', sub: '博主专属：让粉丝看到你的位置', disabled: g.st.role !== 'blogger' },
+          { id: 'live', label: '开直播', sub: '博主专属：让粉丝看到你的位置', disabled: g.st.role !== 'blogger' || g.st.bat.phone < 8 },
           { id: 'no', label: '不回了，省电' },
         ],
       });
-      if (c === 'call') { g.st.bat.phone -= 4; g.addStress(-15); await g.passTime(10); g.toast('妈妈在电话那头说："注意安全，早点下山。"', 'info', 5000); }
+      if (c === 'call') { if (!g.spendBattery('phone', 4)) return; g.addStress(-15); g.recordStory('contactHome'); g.recordStory('familyCallbackAt', g.st.time); if (!await g.eventPause(10)) return; g.toast('妈妈在电话那头说："注意安全，早点下山。"', 'info', 5000); }
       if (c === 'sos') await g.sos({});
-      if (c === 'live') { g.st.bat.phone -= 8; g.addStress(-12); g.st.flags.livePos = true; g.toast('直播间涌进来几万人。有人留言："主播快下撤吧！"', 'info', 5000); }
+      if (c === 'live') { if (!g.spendBattery('phone', 8)) return; g.addStress(-12); g.st.flags.livePos = true; g.toast('直播间涌进来几万人。有人留言："主播快下撤吧！"', 'info', 5000); }
     },
   },
 ];

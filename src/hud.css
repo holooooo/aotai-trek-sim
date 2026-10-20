@@ -1,5 +1,5 @@
 /* HUD：户外GPS手表 × 搜救档案 */
-#hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; font-size: 13px; }
+#hud { position: fixed; inset: 0; z-index: 12; pointer-events: none; font-size: 13px; }
 #hud .pe, #hud button { pointer-events: auto; }
 .ico { display: inline-block; vertical-align: middle; flex: none; }
 

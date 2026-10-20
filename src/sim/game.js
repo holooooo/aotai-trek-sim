@@ -7,11 +7,18 @@ import { ITEMS } from '../data/items.js';
 import { roleById } from '../data/roles.js';
 import { NPCS, npcById } from '../data/npcs.js';
 import { EVENTS } from '../data/events.js';
+import { EXPANDED_EVENTS } from '../data/events-expanded.js';
+import { REPORTED_EVENTS } from '../data/events-reported.js';
+import { chooseEvent, completeEvent } from './event-director.js';
+import { ensureStoryState, collectEpilogues } from './stories.js';
+import { paceProfile } from './pace.js';
+import { travelEnding, canFreeDescent } from './exits.js';
+import { difficultyProfile, maxHealth, ensureDifficulty } from './difficulty.js';
 import { weatherAt, windVectors, airTemp, sunElevation, beaufort, compassName } from './weather.js';
 import { computeEnv, stepBody, coreFeel } from './body.js';
 import { has, removeItem, addItem, packWeight, packCapacity, tentItem, wornItems } from './state.js';
 import { clamp, lerp } from '../world/noise.js';
-import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST } from './records.js';
+import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST, EPILOGUE_LIST } from './records.js';
 
 export const TIME_SCALE = 4; // 游戏分钟 / 现实秒
 const BASE_SPEED = 3.2;
@@ -39,10 +46,14 @@ export class Game {
   // ———————————————————— 生命周期 ————————————————————
   start(st) {
     this.st = st;
+    ensureStoryState(st);
+    ensureDifficulty(st);
+    st.pace = st.pace === 'fast' ? 'fast' : 'walk';
     this.role = roleById(st.role);
     this.over = false;
     this.busy = false;
     this.eventRunning = false;
+    this.eventSnapshot = null;
     this.autoWalk = false;
     this.crouch = false;
     this.campPlacing = null;
@@ -89,6 +100,8 @@ export class Game {
     if (st.camp) this._placeTentMesh();
     this.ui.showHud(true);
     this.refreshHud(true);
+    if (st.ending?.pending) void this.finish(st.ending.type, st.ending.cause);
+    else if (st.camp?.inside && !st.story.pendingEvent) this.ui.showCampMenu(this.campMenuInfo());
   }
 
   dispose() {
@@ -187,7 +200,7 @@ export class Game {
     const el = this.sunEl();
     if (el < 0.02) {
       const lamp = this.st.lampOn && has(this.st, 'headlamp') && this.st.bat.headlamp > 0;
-      const nightVis = lamp ? 26 : 7 + (1 - wx.overcast) * 10;
+      const nightVis = lamp ? (this.st.story.effects.headlampFault ? 14 : 26) : 7 + (1 - wx.overcast) * 10;
       v = Math.min(v, lerp(nightVis, v, clamp((el + 0.15) / 0.17, 0, 1)));
     }
     v *= 1 - this.st.body.snowblind / 160;
@@ -225,6 +238,17 @@ export class Game {
   }
 
   // ———————————————————— 移动 ————————————————————
+  travelPace() { return paceProfile(this.st, this.crouch); }
+
+  togglePace() {
+    if (!this.st || this.over || this.busy || this.eventRunning || this.ui.modalOpen) return;
+    this.st.pace = this.st.pace === 'fast' ? 'walk' : 'fast';
+    this.log(this.st.pace === 'fast' ? '切换速穿配速' : '恢复常速行进');
+    this.toast(this.st.pace === 'fast' ? '速穿：步子加快，消耗和受伤风险也会提高。' : '你放缓了脚步，恢复常速。', this.st.pace === 'fast' ? 'warn' : 'info');
+    this.save();
+    this.refreshHud(true);
+  }
+
   speedFactor() {
     const st = this.st, b = st.body;
     const info = this.here();
@@ -241,6 +265,9 @@ export class Game {
     if (this.night() && !(st.lampOn && st.bat.headlamp > 0)) f *= 0.5;
     if (st.flags.snowDepth > 0.5 && info.type === 'forest') f *= 0.85;
     for (const id of st.companions) f = Math.min(f, (npcById(id)?.speed ?? 1) * this.role.mods.speed);
+    f *= this.travelPace().speed;
+    if (st.story.effects.runnerPaceUntil > st.time) f *= 0.85;
+    if (st.story.effects.sharedLoadUntil > st.time && st.companions.length) f *= 1.06;
     if (this.grade > 0.05) f *= clamp(1 - this.grade * 0.45, 0.45, 1);
     return f;
   }
@@ -259,7 +286,9 @@ export class Game {
     const p = path.pointAt(near.s + st.dir * 7);
     if (!gps && vis < 45) {
       this.driftAngle = clamp(this.driftAngle + (Math.random() - 0.5) * 0.08, -0.9, 0.9);
-      const k = (1 - vis / 45) * 0.9;
+      const checked = st.story.effects.navigationCheckedUntil > st.time;
+      const doubtful = st.story.effects.navigationDoubtUntil > st.time;
+      const k = (1 - vis / 45) * (checked ? 0.35 : doubtful ? 1.2 : 0.9);
       const dx = p.x - this.pos.x, dz = p.z - this.pos.z;
       const a = this.driftAngle * k;
       return { x: this.pos.x + dx * Math.cos(a) - dz * Math.sin(a), z: this.pos.z + dx * Math.sin(a) + dz * Math.cos(a) };
@@ -399,10 +428,10 @@ export class Game {
       if (nb.s < 10 && nm.d < nb.d) { st.path = 'main'; st.s = nm.s; st.dir = 1; this.toast('你回到了主线山脊。', 'info'); }
     }
     const path = this.path();
-    const near = path.nearestNear(this.pos.x, this.pos.z, st.s, 60);
+    const near = st.flags.freeDescent ? path.nearest(this.pos.x, this.pos.z) : path.nearestNear(this.pos.x, this.pos.z, st.s, 60);
     st.s = near.s;
     this.offTrail = near.d;
-    if (st.path === 'main') st.maxS = Math.max(st.maxS, st.s);
+    if (st.path === 'main' && this.offTrail < 35) st.maxS = Math.max(st.maxS, st.s);
     const nav = this.role.mods.nav * (st.gpsOn && st.bat.gps > 0 ? 1.6 : 1);
     const lostAt = 16 * nav;
     const wasLost = st.flags.lost;
@@ -470,6 +499,11 @@ export class Game {
     const st = this.st;
     const c = this.ctx();
     const env = computeEnv(st, c);
+    if (env.tentInfo && st.story.effects.tentLeak) {
+      env.Teff -= 2;
+      env.tentInfo.Tin -= 2;
+      env.precip = c.wx.precip * 0.15;
+    }
     this.env = env;
     this.c = c;
     const mode = modeOverride ?? this.activity();
@@ -478,7 +512,7 @@ export class Game {
     let load = 1 + Math.max(0, w - 6) * 0.03 * (this.role.mods.heavyLoad ?? 1);
     if (w > cap) load *= 1.4;
     const sunEl = this.sunEl();
-    const effort = clamp(1 + Math.max(0, this.grade) * 2.2 + Math.max(0, -this.grade) * 0.5, 0.7, 2.6);
+    const effort = clamp(1 + Math.max(0, this.grade) * 2.2 + Math.max(0, -this.grade) * 0.5, 0.7, 2.6) * (st.story.effects.runnerPaceUntil > st.time ? 0.8 : 1) * this.travelPace().effort;
     const act = {
       mode, effort, downhill: this.grade < -0.12, terrainStamina: T.stamina * (st.flags.snowDepth > 0.5 ? 1.12 : 1),
       load, snowDeep: T.snow + (st.flags.snowDepth || 0), alt: c.alt,
@@ -498,7 +532,6 @@ export class Game {
       if (over > 0) st.camp.health = Math.max(0, st.camp.health - over * 0.07 * minutes);
     }
     this.simCompanions(minutes, c, env, mode);
-    this.simRescue();
     if (!opts.skip && mode === 'walk') this.rollHazards(minutes, c, env);
 
     st.stats.minCore = Math.min(st.stats.minCore, st.body.core);
@@ -506,11 +539,13 @@ export class Game {
     for (const n of notes) if (n === 'powerbank_dead') this.toast('充电宝在低温下冻死机了，再也开不了机。', 'danger', 5000);
     this.thresholdNotes(env);
     this.checkDeath();
+    if (!this.over) this.simRescue();
   }
 
   rollHazards(minutes, c, env) {
     const st = this.st, b = st.body;
     const vis = this.visibility();
+    minutes *= this.travelPace().risk;
     const fatigue = 1 + (1 - b.stamina / 100);
     const cl = env.cl;
     if (c.type === 'stone') {
@@ -587,7 +622,7 @@ export class Game {
 
   hurt(v, cause) {
     const b = this.st.body;
-    b.health = clamp(b.health - v, 0, 100);
+    b.health = clamp(b.health - v * difficultyProfile(this.st).damage, 0, maxHealth(this.st));
     b.lastHarm = cause;
     this.ui.flash('hurt');
     this.checkDeath();
@@ -623,6 +658,13 @@ export class Game {
   checkTriggers(dt) {
     const st = this.st;
     if (this.eventRunning || this.over) return;
+    if (st.story.pendingEvent) {
+      const pending = [...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS].find((ev) => ev.id === st.story.pendingEvent);
+      if (pending) return this.runScheduledEvent(pending);
+      st.story.pendingEvent = null;
+    }
+    const exit = travelEnding(st, this.pos, { falling: this.falling, groundY: this.world.height(this.pos.x, this.pos.z) });
+    if (exit) return this.finish(exit);
     // 管护站
     if (!st.flags.gateDone && st.path === 'main' && st.s > 30) return this.runEvent(() => this.gateScene());
     // 途经点
@@ -640,17 +682,6 @@ export class Game {
           if (wp.id === 'dayehai') return this.runEvent(() => this.dayehaiScene());
         }
       }
-      if (st.dir < 0 && st.s < 10 && st.maxS > 60) {
-        const ao = mainPath.waypoints.find((w) => w.id === 'aoliang');
-        return this.finish(st.maxS < ao.s ? 'turnback' : 'retreat');
-      }
-      if (st.s < 6 && st.maxS > 80) {
-        const ao = mainPath.waypoints.find((w) => w.id === 'aoliang');
-        return this.finish(st.maxS < ao.s ? 'turnback' : 'retreat');
-      }
-    } else {
-      const b = this.path();
-      if (st.s > b.length - 8) return this.finish('retreat_branch');
     }
     // 天气预兆
     const wx = this.wx();
@@ -709,30 +740,113 @@ export class Game {
         if (rt.marker) rt.marker.visible = false;
       }
     }
-    // 随机事件
+    // 条件候选池，而不是数组中第一个命中的事件。
     this.lastEventCheck += dt;
     if (this.lastEventCheck > 1.4) {
       this.lastEventCheck = 0;
-      for (const ev of EVENTS) {
-        const key = 'ev_' + ev.id;
-        if (ev.once && st.flags[key]) continue;
-        if (!ev.once && st.flags[key] && st.time - st.flags[key] < (ev.cooldown || 300)) continue;
-        if (st.camp && st.camp.inside && ev.id !== 'hallucination') continue;
-        let ok = false;
-        try { ok = ev.cond(this); } catch (e) { ok = false; }
-        if (ok) {
-          st.flags[key] = st.time;
-          return this.runEvent(() => ev.run(this));
-        }
+      const ev = chooseEvent([...EVENTS, ...EXPANDED_EVENTS, ...REPORTED_EVENTS], this);
+      if (ev) return this.runScheduledEvent(ev);
+    }
+  }
+
+  repairEquipment(id) {
+    if (this.busy || this.eventRunning || this.over) return;
+    const ev = EXPANDED_EVENTS.find((e) => e.id === id);
+    if (ev && (id === 'headlamp_contact' && this.st.story.effects.headlampFault || id === 'windproof_lash' && this.st.story.effects.tentLeak && this.st.camp?.inside)) return this.runScheduledEvent(ev);
+  }
+
+  async runScheduledEvent(ev) {
+    if (this.eventRunning || this.over) return;
+    const st = this.st;
+    st.story.pendingEvent = ev.id;
+    // 事件结算是一个存档事务：刷新恢复到对话前，不会重复消耗物资。
+    this.eventSnapshot = JSON.stringify(st);
+    this.ui.hideCampMenu();
+    this.save();
+    try {
+      await this.runEvent(async () => {
+        await ev.run(this);
+        if (!this.over && this.st === st) completeEvent(st, ev);
+      }, { propagate: true });
+    } catch (error) {
+      if (this.st === st && !this.over) {
+        const restored = JSON.parse(this.eventSnapshot);
+        restored.story.pendingEvent = null;
+        restored.story.lastAmbientAt = restored.time;
+        this.start(restored);
+        this.save();
+        this.toast('这段事件未能完成，已恢复到选择前的状态。', 'warn');
+      }
+    } finally {
+      this.eventSnapshot = null;
+      if (this.st === st) {
+        this.save();
+        if (!this.over && st.camp?.inside && !this.campPlacing) this.ui.showCampMenu(this.campMenuInfo());
       }
     }
   }
 
-  async runEvent(fn) {
+  async storyDialog(id, opts) {
+    const st = this.st;
+    const choice = await this.dialog({ ...opts, sub: opts.sub ?? '虚构情境 · 选择会影响后续' });
+    if (this.over || this.st !== st) return null;
+    const label = opts.choices.find((c) => c.id === choice)?.label ?? choice;
+    st.story.choices[id] = choice;
+    st.story.decisions.push({ id, choice, label, time: st.time, who: opts.who });
+    if (st.story.decisions.length > 80) st.story.decisions.shift();
+    this.log(`${opts.who}：${label}`);
+    return choice;
+  }
+
+  recordStory(key, value = true) { this.st.story.threads[key] = value; }
+  storyValue(key) { return this.st.story.threads[key]; }
+  giveItem(id, n = 1) { if (n > 0) addItem(this.st, id, n); }
+  takeItem(id, n = 1) {
+    if (!(n > 0) || (this.st.inv[id] || 0) < n) return false;
+    return removeItem(this.st, id, n);
+  }
+  spendBattery(key, n) {
+    if (!(n >= 0) || !(key in this.st.bat) || this.st.bat[key] < n) return false;
+    this.st.bat[key] = clamp(this.st.bat[key] - n, 0, 100);
+    return true;
+  }
+  changeBody(key, delta) {
+    if (this.over || !Number.isFinite(delta) || !(key in this.st.body)) return;
+    if (key === 'stress') return this.addStress(delta);
+    const bounds = key === 'core' ? [20, 37.6] : key === 'health' ? [0, maxHealth(this.st)] : ['sprain', 'fracture'].includes(key) ? [0, 1] : [0, 100];
+    if (key === 'health' && delta < 0) delta *= difficultyProfile(this.st).damage;
+    this.st.body[key] = clamp(this.st.body[key] + delta, ...bounds);
+    if (key === 'health' && delta < 0) this.st.body.lastHarm = 'injury';
+    this.checkDeath();
+  }
+  async eventPause(minutes) {
+    const st = this.st;
+    await this.passTime(minutes);
+    return this.st === st && !this.over;
+  }
+  updateRescuePosition() {
+    const st = this.st, r = st.rescue;
+    if (!r || !r.self || !this.comms().any) return false;
+    const method = this.comms().sat ? 'satcomm' : 'phone';
+    if (!this.spendBattery(method, method === 'satcomm' ? 4 : 5)) return false;
+    const moved = Math.hypot(this.pos.x - r.x, this.pos.z - r.z) > 10;
+    r.x = this.pos.x; r.z = this.pos.z; r.moved = false; r.near = false;
+    if (moved) r.eta = Math.max(r.eta, st.time + 120);
+    this.recordStory('rescueContact');
+    this.recordStory('rescueUpdated');
+    this.recordStory('rescueUpdatedAt', st.time);
+    this.save();
+    this.log('向救援队更新了当前位置');
+    this.toast('新位置已确认。接下来不要擅自离开，必要转移时继续保持联系。', 'good', 6000);
+    return true;
+  }
+
+  async runEvent(fn, { propagate = false } = {}) {
     if (this.eventRunning) return;
     this.eventRunning = true;
-    try { await fn(); } catch (e) { console.error(e); }
-    this.eventRunning = false;
+    try { await fn(); }
+    catch (e) { console.error(e); if (propagate) throw e; }
+    finally { this.eventRunning = false; }
   }
 
   async gateScene() {
@@ -788,7 +902,7 @@ export class Game {
     st.body.stress = Math.max(0, st.body.stress - 30);
     st.time += 120;
     for (const id of st.companions) if (st.npcs[id]) st.npcs[id].cond = 100;
-    if (c === 'down') return this.finish('cross');
+    if (c === 'down') return this.finish('dayehai');
     this.toast('你在屋里喝了两杯热水，重新出发。', 'good');
   }
 
@@ -1089,6 +1203,7 @@ export class Game {
 
   async sos({ forNpc = null } = {}) {
     const st = this.st;
+    if (!forNpc && st.rescue?.self && st.rescue.moved) return { ok: this.updateRescuePosition() };
     const c = this.comms();
     if (!c.any) { this.toast(this.commsLabel(), 'warn'); return { ok: false }; }
     const method = c.sat ? 'sat' : 'phone';
@@ -1100,6 +1215,7 @@ export class Game {
       }
     } else st.bat.satcomm = Math.max(0, st.bat.satcomm - 4);
     const accurate = method === 'sat' || st.flags.livePos || has(st, 'gps');
+    this.recordStory('rescueContact');
     if (st.rescue) {
       if (forNpc && !st.rescue.npcs.includes(forNpc)) st.rescue.npcs.push(forNpc);
       if (!forNpc && !st.rescue.self) { st.rescue.self = true; st.rescue.x = this.pos.x; st.rescue.z = this.pos.z; this.toast('你把自己的位置也报给了救援队。', 'info'); return { ok: true }; }
@@ -1112,20 +1228,33 @@ export class Game {
     if (!accurate) hours *= 1.3;
     if (method === 'phone' && !accurate) hours *= 1.1;
     const eta = Math.round(hours * 60);
-    st.rescue = { at: st.time, eta: st.time + eta, x: this.pos.x, z: this.pos.z, method, npcs: forNpc ? [forNpc] : [], self: !forNpc, moved: false, near: false };
+    const searchDelay = this.rescueSearchRate() * 240;
+    st.rescue = { at: st.time, eta: st.time + eta + searchDelay, searchDelay, x: this.pos.x, z: this.pos.z, method, npcs: forNpc ? [forNpc] : [], self: !forNpc, moved: false, near: false };
     this.log(`发出求救（${method === 'sat' ? '卫星' : '手机'}）`);
     await this.say('求救已发出', [
       method === 'sat' ? '北斗通讯器屏幕上跳出一行字：坐标已发送。' : `接警员问了你的位置。${accurate ? '你报出了GPS坐标。' : '你只能描述附近的地形……'}`,
-      `救援队预计约 ${Math.max(1, Math.round(hours))} 小时后到达。`,
+      '救援队接到了消息，正在组织进山。抵达时间暂时无法确认。',
       '原地等待，扎营保暖，保存体力和电量。不要乱走——救援队会去你报告的位置找你。',
     ], '原地等待');
     return { ok: true };
   }
 
-  simRescue() {
+  rescueSearchRate() {
+    const terrain = clamp(((this.offTrail || 0) - 12) / 90, 0, 1) * 0.35;
+    const reading = this.visibility ? this.visibility() : 260;
+    const visibility = Number.isFinite(reading) ? reading : 260;
+    const obscured = clamp((90 - visibility) / 90, 0, 1) * 0.4;
+    return terrain + obscured;
+  }
+
+  simRescue(minutes = 0) {
     const st = this.st;
     const r = st.rescue;
     if (!r) return;
+    // 按已过去的游戏时间积累搜索阻力；即使一直有雾，进度也不会停止。
+    const delay = Math.max(0, minutes) * this.rescueSearchRate();
+    r.eta += delay;
+    r.searchDelay = (r.searchDelay || 0) + delay;
     const d = Math.hypot(this.pos.x - r.x, this.pos.z - r.z);
     if (r.self && d > 45 && !r.moved) {
       r.moved = true;
@@ -1137,7 +1266,7 @@ export class Game {
       this.toast('远处传来哨声和人声——救援队快到了！', 'good', 6000);
     }
     if (st.time >= r.eta) {
-      if (d < 50) return this.finish('rescued');
+      if (r.self && d < 50) return this.finish('rescued');
       for (const id of r.npcs) if (st.npcs[id] && st.npcs[id].fate !== 'died') st.npcs[id].fate = 'rescued';
       st.rescue = null;
       if (r.self) this.toast('救援队到了你报告的位置，却没有找到你。', 'warn', 6000);
@@ -1149,12 +1278,13 @@ export class Game {
     const st = this.st;
     const choices = [];
     if (st.path === 'main' && st.dir > 0) choices.push({ id: 'back', label: '原路返回塘口', sub: `约 ${(st.s * KM_PER_UNIT).toFixed(1)} km` });
+    if (canFreeDescent(st)) choices.push({ id: 'free', label: '从这里自行寻找下撤方向', sub: '手动控制，不沿既有路线自动寻路' });
     if (this.canBranch()) choices.push({ id: 'hetaoping', label: '南坡下撤 · 核桃坪', sub: '从2800营地向南，约10 km 下降到林道' });
     if (st.dir < 0 && st.path === 'main') choices.push({ id: 'forward', label: '掉头，继续往太白山方向' });
     choices.push({ id: 'cancel', label: '再想想' });
     const c = await this.dialog({ who: '下撤', text: ['下撤不丢人。在鳌太线上，能在还有余力的时候回头，是最重要的能力。', st.flags.knowsBailout ? '小牟说过：实在不行，就到2800营地往南坡下。' : ''].filter(Boolean), choices });
-    if (c === 'back' || c === 'hetaoping') this.retreat(c);
-    if (c === 'forward') { st.dir = 1; this.cam.yaw += Math.PI; this.toast('你转过身，重新朝太白山方向走去。', 'info'); }
+    if (c === 'back' || c === 'hetaoping' || c === 'free') this.retreat(c);
+    if (c === 'forward') { st.flags.freeDescent = false; st.dir = 1; this.cam.yaw += Math.PI; this.toast('你转过身，重新朝太白山方向走去。', 'info'); }
   }
 
   canBranch() {
@@ -1164,6 +1294,17 @@ export class Game {
 
   retreat(kind) {
     const st = this.st;
+    if (kind === 'free') {
+      if (!canFreeDescent(st)) return;
+      st.flags.freeDescent = true;
+      this.autoWalk = false;
+      this.lure = null;
+      this.log('开始自行下撤');
+      this.toast('你离开了既定行程，开始自己寻找下山方向。', 'info', 5000);
+      this.save();
+      return;
+    }
+    st.flags.freeDescent = false;
     if (kind === 'back') {
       if (st.dir > 0) this.cam.yaw += Math.PI;
       st.dir = -1;
@@ -1319,7 +1460,7 @@ export class Game {
       inside: env ? Math.round(env.Teff) : null,
       canCook: has(st, 'stove') && has(st, 'pot') && st.gas.normal + st.gas.alpine > 0,
       canSos: this.comms().any,
-      rescue: st.rescue ? Math.max(0, Math.round((st.rescue.eta - st.time) / 60)) : null,
+      rescue: st.rescue?.self ? true : null,
       night: this.night() || this.hour() > 15.5,
     };
   }
@@ -1332,9 +1473,10 @@ export class Game {
       this.ui.setBusy('收帐篷……');
       await this.skip(st.camp.collapsed ? 25 : 15, 'idle');
       this.ui.setBusy(null);
+      if (this.over || this.st !== st) return;
       if (this.tentMesh) this.world.scene.remove(this.tentMesh);
       this.tentMesh = null;
-      if (st.camp.collapsed) { removeItem(st, st.camp.tent); this.toast('帐篷已经坏了，你把它扔下了。', 'warn'); }
+      if (st.camp.collapsed) { st.story.effects.tentLeak = false; removeItem(st, st.camp.tent); this.toast('帐篷已经坏了，你把它扔下了。', 'warn'); }
     }
     st.camp = null;
     this.player.visible = true;
@@ -1445,11 +1587,11 @@ export class Game {
     const st = this.st;
     if (!st.rescue) return;
     this.ui.setBusy('等待救援……', true);
-    await this.skip(Math.max(10, st.rescue.eta - st.time + 5), st.camp && st.camp.inside ? 'rest' : 'idle', {
+    await this.skip(240, st.camp && st.camp.inside ? 'rest' : 'idle', {
       check: () => (st.body.core < 34 && this.roll(0.08) ? 'cold' : null),
     });
     this.ui.setBusy(null);
-    if (!this.over) this.toast('你冷得受不了，必须做点什么。', 'danger');
+    if (!this.over) this.toast(st.body.core < 34 ? '你冷得受不了，必须做点什么。' : '还没有等到救援队。你检查了一遍衣物和补给。', st.body.core < 34 ? 'danger' : 'info');
   }
 
   async skip(minutes, mode, opts = {}) {
@@ -1562,6 +1704,7 @@ export class Game {
     st.gas.normal = Math.max(0, st.gas.normal);
     await this.skip(windy ? 25 : 15, st.camp && st.camp.inside ? 'rest' : 'idle');
     this.ui.setBusy(null);
+    if (this.over || this.st !== st) return;
     if (!ok) {
       this.toast('普通气罐冻透了，火苗只有黄豆大，半天也没烧开。（把气罐揣在怀里，或者买高山气罐）', 'warn', 6000);
       return;
@@ -1593,12 +1736,12 @@ export class Game {
   useFirstAid() {
     const st = this.st, b = st.body;
     if (!has(st, 'firstaid')) return;
-    if (b.sprain <= 0 && b.fracture <= 0 && b.health > 85) return this.toast('你没有需要处理的伤。', 'info');
+    if (b.sprain <= 0 && b.fracture <= 0 && b.health > maxHealth(st) * 0.85) return this.toast('你没有需要处理的伤。', 'info');
     removeItem(st, 'firstaid');
     const k = this.role.mods.firstAid;
-    if (b.fracture > 0) { b.fracture = 0.5; b.health = clamp(b.health + 8 + 10 * k, 0, 100); this.toast('你用夹板固定了骨折的部位。疼得满头冷汗，但能慢慢走了。', 'good', 4500); }
-    else if (b.sprain > 0) { if (this.roll(0.5 + 0.5 * k)) b.sprain = 0; b.health = clamp(b.health + 6 + 8 * k, 0, 100); this.toast(b.sprain ? '你缠紧了脚踝，还是有点疼。' : '你用绷带固定好了脚踝。', 'good'); }
-    else { b.health = clamp(b.health + 10 + 10 * k, 0, 100); this.toast('你处理了身上的擦伤和冻伤。', 'good'); }
+    if (b.fracture > 0) { b.fracture = 0.5; b.health = clamp(b.health + 8 + 10 * k, 0, maxHealth(st)); this.toast('你用夹板固定了骨折的部位。疼得满头冷汗，但能慢慢走了。', 'good', 4500); }
+    else if (b.sprain > 0) { if (this.roll(0.5 + 0.5 * k)) b.sprain = 0; b.health = clamp(b.health + 6 + 8 * k, 0, maxHealth(st)); this.toast(b.sprain ? '你缠紧了脚踝，还是有点疼。' : '你用绷带固定好了脚踝。', 'good'); }
+    else { b.health = clamp(b.health + 10 + 10 * k, 0, maxHealth(st)); this.toast('你处理了身上的擦伤和冻伤。', 'good'); }
   }
 
   careNpc(id, what) {
@@ -1626,12 +1769,42 @@ export class Game {
     this.finish('dead', cause);
   }
 
-  finish(type, cause) {
+  async finish(type, cause) {
     if (this.over) return;
     this.over = true;
     this.autoWalk = false;
     const st = this.st;
-    st.ending = { type, cause };
+    const resuming = !!st.ending?.pending;
+    st.ending = resuming ? st.ending : { type, cause, pending: true };
+    this.ui.hideCampMenu();
+    if (!resuming) st.story.resolutions = [];
+    // 山下后续也是存档的一部分；刷新后继续结算，不能退回山上。
+    const checkpoint = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(st)); } catch (e) { /* 存储受限不阻止结局呈现 */ } };
+    checkpoint();
+    // 这些发生在虚构的下山之后，不消耗山上剩余电量，也不保证他人获救。
+    if (type !== 'dead' && type !== 'sausage' && (st.flags.reportChen && !st.story.threads.chenReportCompleted || st.story.threads.reportNote && !st.story.threads.reportNoteCompleted) && !st.ending.reportResolved) {
+      const c = await this.dialog({ who: '下山以后 · 一条尚未移交的线索', sub: '虚构后续',
+        text: ['你记下了遇险者的最后位置与时间。现在终于可以向警方完整说明情况。'],
+        choices: [{ id: 'report', label: '移交位置、时间与伤情记录' }, { id: 'leave', label: '没有移交这条线索' }] });
+      if (this.st !== st) return;
+      st.ending.reportResolved = true;
+      if (c === 'report') {
+        if (st.flags.reportChen) st.story.threads.chenReportCompleted = true;
+        if (st.story.threads.reportNote) st.story.threads.reportNoteCompleted = true;
+        st.story.threads.reportCompleted = true;
+      }
+      st.story.resolutions.push({ title: '山下的报警', text: c === 'report' ? '你把所见情况交给了警方。搜救人员接下了线索；能否找到他，还需要继续确认。' : '那条位置记录仍留在手机里，没有进入搜救信息。' });
+    }
+    checkpoint();
+    if (type !== 'dead' && st.story.threads.contactHome && !st.ending.familyResolved) {
+      const c = await this.dialog({ who: '山下 · 回一条消息', sub: '虚构后续', text: ['手机重新接通了网络，家人的消息还停在那句“你现在在哪儿？”上。'],
+        choices: [{ id: 'reply', label: '告诉他们：我下山了' }, { id: 'later', label: '先休息，稍后联系' }] });
+      if (this.st !== st) return;
+      st.ending.familyResolved = true;
+      st.story.threads.familyReplied = c === 'reply';
+      st.story.resolutions.push({ title: '山下还有人等', text: c === 'reply' ? '你发出了平安消息。这一次，对方很快回了电话。' : '你把电话放在手边，打算休息后再向家人说明。' });
+    }
+    checkpoint();
     this.music?.stinger(type === 'dead' ? 'death' : type === 'rescued' ? 'rescue' : 'waypoint');
     const fates = [];
     for (const [id, ns] of Object.entries(st.npcs)) {
@@ -1643,10 +1816,10 @@ export class Game {
         else if (type === 'rescued') f = def.fates.rescued ? 'rescued' : 'survived';
         else f = def.fates.survived ? 'survived' : def.fates.followed ? 'followed' : 'together';
       }
-      if (f === 'reportLater') f = type === 'dead' ? 'died' : 'helped';
+      if (f === 'reportLater') f = type === 'dead' ? 'died' : st.story.threads.chenReportCompleted ? 'reported' : 'unknown';
       if (f === 'following') f = 'died';
       if (st.rescue && st.rescue.npcs.includes(id) && type === 'rescued') f = 'rescued';
-      const text = def.fates[f];
+      const text = f === 'reported' ? '你下山后向警方移交了老陈的位置与状况。搜救正在跟进；此时还不能确认他的最终结局。' : f === 'unknown' ? '你没有移交那条位置记录。你不知道他后来怎样了。' : def.fates[f];
       if (text) fates.push({ name: def.name, age: def.age, fate: f, text });
     }
     const realMin = Math.round((Date.now() - st.stats.startedAt) / 60000);
@@ -1660,30 +1833,35 @@ export class Game {
       coldest: Math.round(st.stats.coldestFelt),
       nights: st.stats.nights,
       realMin,
-      fines: st.flags.illegal ? (st.fines || 0) + (type === 'cross' || type === 'rescued' || type === 'retreat' || type === 'retreat_branch' ? 5000 : 0) : 0,
+      fines: st.flags.illegal ? (st.fines || 0) + (type === 'dayehai' || type === 'cross' || type === 'rescued' || type === 'retreat' || type === 'retreat_branch' || type === 'retreat_wild' || type === 'sigma' ? 5000 : 0) : 0,
       rescueCost: type === 'rescued' ? 80000 : 0,
       insurance: !!st.flags.insurance,
     };
     if (stats.fines > 5000) stats.fines = 5000;
     localStorage.removeItem(SAVE_KEY);
     // 游玩记录
+    const epilogues = collectEpilogues(st, type, fates);
     const key = endingKey(type, cause);
-    const isNew = !summarize().unlocked.has(key);
+    const previous = summarize();
+    const isNew = !previous.unlocked.has(key);
+    const newEpilogues = epilogues.filter((id) => !previous.unlockedEpilogues.has(id));
     const okFates = ['safe', 'rescued', 'survived', 'followed', 'together', 'helped', 'warned', 'waited'];
     const records = addRecord({
-      at: Date.now(), role: this.role.id, roleName: this.role.short, key, type, cause: cause || null,
+      at: Date.now(), role: this.role.id, roleName: this.role.short, difficulty: st.difficulty, key, type, cause: cause || null,
       progress: Number(stats.progress), dist: Number(stats.dist), days: stats.days, maxAlt: stats.maxAlt,
       minCore: Number(stats.minCore), realMin: realMin, nights: stats.nights,
       saved: fates.filter((f) => okFates.includes(f.fate)).length, lost: fates.filter((f) => f.fate === 'died').length,
+      epilogues, decisions: st.story.decisions.slice(-12), resolutions: st.story.resolutions,
     });
     const sum = summarize(records);
     stats.collected = `${ENDING_LIST.filter((e) => sum.unlocked.has(e.id)).length} / ${ENDING_LIST.length}`;
+    stats.epilogueCollected = `${sum.unlockedEpilogues.size} / ${EPILOGUE_LIST.length}`;
     stats.newEnding = isNew;
     stats.runs = sum.total;
     this.ui.showHud(false);
     this.ui.hideCampMenu();
     this.ui.hideCampPlacer();
-    this.ui.showEnding({ type, cause, role: this.role, stats, fates, log: st.log });
+    this.ui.showEnding({ type, cause, role: this.role, stats, fates, epilogues, newEpilogues, decisions: st.story.decisions, resolutions: st.story.resolutions });
   }
 
   // ———————————————————— 视觉 ————————————————————
@@ -1763,7 +1941,8 @@ export class Game {
       lamp: { on: lampOn, pos: new THREE.Vector3(this.pos.x, this.pos.y + 1.6, this.pos.z), dir: new THREE.Vector3(fwd.x, -0.25, fwd.z).normalize() },
       cloudSea: clamp((altNow - 2950) / 300, 0, 1) * (1 - wx.fog) * (1 - wx.precip) * (wx.overcast < 0.8 ? 1 : 0.35),
     }, dt, this.pos);
-    this.world.setHeadlamp(lampOn, this.pos, fwd);
+    const lampVisible = lampOn && (!st.story.effects.headlampFault || Math.floor(performance.now() / 600) % 4 !== 0);
+    this.world.setHeadlamp(lampVisible, this.pos, fwd);
 
     // 屏幕效果
     const b = st.body;
@@ -1821,11 +2000,11 @@ export class Game {
       windRel: Math.atan2(-Math.sin((wx.dirDeg * Math.PI) / 180), Math.cos((wx.dirDeg * Math.PI) / 180)) - (this.cam.yaw + Math.PI),
       alt: Math.round(voxToAlt(this.pos.y)),
       km: st.path === 'main' ? st.s * KM_PER_UNIT : st.s * KM_PER_UNIT,
-      route: st.path === 'main' ? (st.dir > 0 ? '鳌山 → 太白' : '下撤 → 塘口') : '南坡下撤 → 核桃坪',
+      route: st.flags.freeDescent ? '自行下撤' : st.path === 'main' ? (st.dir > 0 ? '鳌山 → 太白' : '下撤 → 塘口') : '南坡下撤 → 核桃坪',
       total: st.path === 'main' ? mainPath.length * KM_PER_UNIT : path.length * KM_PER_UNIT,
-      next,
+      next: st.flags.freeDescent ? null : next,
       core: b.core, coreFeel: coreFeel(b.core), showCore: !!this.role.mods.showCore,
-      stamina: b.stamina, food: b.food, water: b.water, stress: b.stress, health: b.health, wet: b.wet,
+      maxHealth: maxHealth(st), difficulty: difficultyProfile(st).name, stamina: b.stamina, food: b.food, water: b.water, stress: b.stress, health: b.health, wet: b.wet,
       status: {
         lost: st.flags.lost, sprain: b.sprain > 0, fracture: b.fracture > 0, frost: b.frostbite > 25,
         shiver: b.shiver > 0.3, sweat: b.sweating > 0.5 && this.moving, snowblind: b.snowblind > 50, alt: b.altSick > 40,
@@ -1833,8 +2012,8 @@ export class Game {
       },
       phone: Math.round(st.bat.phone), airplane: st.airplane, signal: st.airplane ? -1 : this.signal(),
       gpsArrow, compass: has(st, 'compass') || gps ? this.cam.yaw : null,
-      auto: this.autoWalk, crouch: this.crouch, inCamp: !!(st.camp && st.camp.inside),
-      rescue: st.rescue ? Math.max(0, (st.rescue.eta - st.time) / 60) : null,
+      fast: st.pace === 'fast', auto: this.autoWalk, crouch: this.crouch, inCamp: !!(st.camp && st.camp.inside),
+      rescue: st.rescue?.self ? true : null,
       companions: st.companions.map((id) => ({ id, name: npcById(id).name, cond: st.npcs[id].cond })),
       insul: st.wearInsul, hasInsul: this.hasInsul(),
       gustDanger: windS > 12.5,
@@ -1881,7 +2060,7 @@ export class Game {
 
   save() {
     if (!this.st || this.over) return;
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.st)); } catch (e) { /* 存储满了 */ }
+    try { localStorage.setItem(SAVE_KEY, this.eventSnapshot ?? JSON.stringify(this.st)); } catch (e) { /* 存储满了 */ }
   }
 
   static loadSave() {
@@ -1889,7 +2068,9 @@ export class Game {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return null;
       const st = JSON.parse(raw);
-      return st && st.v === 1 && !st.ending ? st : null;
+      if (!st || st.v !== 1 || st.ending && !st.ending.pending) return null;
+      ensureStoryState(st);
+      return st;
     } catch (e) { return null; }
   }
   static clearSave() { localStorage.removeItem(SAVE_KEY); }

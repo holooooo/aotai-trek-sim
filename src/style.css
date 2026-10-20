@@ -102,6 +102,7 @@ a { color: var(--blue); }
 .title-kicker { font-family: var(--mono); font-size: 18px; color: var(--muted); letter-spacing: 0.2em; }
 .title-main { font-family: var(--display); font-size: clamp(76px, 15vw, 168px); line-height: 0.92; margin: 6px 0 2px; letter-spacing: 0.02em;
   text-shadow: 6px 6px 0 #000, 0 0 40px rgba(111, 183, 224, 0.25); }
+.title-edition { font-size: clamp(16px, 2.4vw, 26px); color: var(--blue); letter-spacing: 0.03em; text-shadow: 2px 2px 0 #000; margin-left: 8px; white-space: nowrap; }
 .title-sub { font-family: var(--display); font-size: clamp(20px, 3vw, 30px); color: var(--ink2); letter-spacing: 0.2em; margin-top: 10px; }
 .stamp {
   display: inline-block; font-family: var(--display); color: var(--red); border: 4px solid var(--red); padding: 2px 12px;
@@ -353,3 +354,12 @@ a { color: var(--blue); }
   .dlg { max-height: calc(100dvh - 20px); }
   #joyBase { width: 104px; height: 104px; }
 }
+
+/* 故事后续沿用搜救档案的排版，窄屏允许标题换行。 */
+.story-decisions { margin: 14px 0; border-top: 1px solid var(--line); padding: 12px 0; }
+.story-decisions summary { cursor: pointer; color: var(--ink2); min-height: 36px; }
+.story-decisions ol { padding-left: 24px; }
+.story-decisions li { padding: 5px 0; overflow-wrap: anywhere; }
+.story-decisions p { margin: 4px 0; }
+.end-sec h3 { flex-wrap: wrap; }
+.case .src { overflow-wrap: anywhere; }

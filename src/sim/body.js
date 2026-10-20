@@ -4,6 +4,7 @@ import { ITEMS } from '../data/items.js';
 import { wornItems, tentItem, bagItem, padItem, has } from './state.js';
 import { airTemp, windChill } from './weather.js';
 import { clamp } from '../world/noise.js';
+import { ensureDifficulty, maxHealth } from './difficulty.js';
 
 export function clothing(st) {
   const worn = wornItems(st);
@@ -52,6 +53,8 @@ const NOTE_COOLDOWN = 90; // 分钟
 // act: { mode: walk|idle|rest|sleep|crouch, effort, downhill, terrainStamina, load, snowDeep }
 export function stepBody(st, env, act, minutes, role) {
   const notes = [];
+  const difficulty = ensureDifficulty(st);
+  const healthCap = maxHealth(st);
   const b = st.body;
   const m = role.mods;
   let remaining = minutes;
@@ -92,7 +95,7 @@ export function stepBody(st, env, act, minutes, role) {
       if (!env.cl.hat) loss *= 1.08;
       if (sleeping && env.tentInfo && !padItem(st)) loss *= 1.25;
     }
-    loss *= m.heatLoss;
+    loss *= m.heatLoss * difficulty.heatLoss;
     if (st.warmerLeft > 0) { loss *= 0.86; st.warmerLeft -= dt; }
     if (st.alcoholLeft > 0) { loss *= 1.25; st.alcoholLeft -= dt; }
     const H = prod + shiver - loss;
@@ -125,14 +128,14 @@ export function stepBody(st, env, act, minutes, role) {
     // —— 饱食、水分 ——
     const effort = walking ? act.effort : 0;
     const baseK = sleeping ? 0.65 : 1; // 睡眠时代谢较低
-    b.food -= (0.024 * baseK + effort * 0.048 + shiver * 0.11) * dt;
-    b.water -= ((0.028 + (act.alt > 3000 ? 0.008 : 0)) * baseK + effort * 0.038 + b.sweating * 0.02) * dt;
+    b.food -= (0.024 * baseK + effort * 0.048 + shiver * 0.11) * dt * difficulty.foodDrain;
+    b.water -= ((0.028 + (act.alt > 3000 ? 0.008 : 0)) * baseK + effort * 0.038 + b.sweating * 0.02) * dt * difficulty.waterDrain;
     b.food = clamp(b.food, 0, 100);
     b.water = clamp(b.water, 0, 100);
 
     // —— 体力 ——
     if (walking) {
-      let drain = 0.13 * act.effort * act.terrainStamina * act.load * m.staminaDrain;
+      let drain = 0.13 * act.effort * act.terrainStamina * act.load * m.staminaDrain * difficulty.staminaDrain;
       if (act.downhill && role.id === 'veteran') drain *= 1.35;
       if (b.altSick > 30) drain *= 1.12;
       if (b.sprain > 0) drain *= 1.3;
@@ -175,8 +178,8 @@ export function stepBody(st, env, act, minutes, role) {
     if (b.food <= 0) hurt(0.03 * dt, 'starvation');
     if (b.frostbite > 20) hurt(0.0025 * b.frostbite * dt * 0.1, 'hypothermia');
     if (b.fracture > 0) hurt(0.01 * dt, 'injury');
-    b.health = clamp(b.health - harm, 0, 100);
-    if (harm === 0 && b.core > 36 && b.food > 30 && b.water > 30 && !walking) b.health = clamp(b.health + 0.02 * dt, 0, 100);
+    b.health = clamp(b.health - harm * difficulty.damage, 0, healthCap);
+    if (harm === 0 && b.core > 36 && b.food > 30 && b.water > 30 && !walking) b.health = clamp(b.health + 0.02 * dt, 0, healthCap);
 
     // —— 压力 ——
     let ds = 0;

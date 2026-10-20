@@ -5,3 +5,16 @@ dist/
 .wrangler/
 .DS_Store
 *.log
+output/playwright/
+
+# Local promotional exports and render caches
+promo/build/
+promo/__pycache__/
+/aotai_promo_*.mp4
+/cover_3x4.png
+/cover_4x3.png
+
+# Local credentials
+.env
+.env.*
+!.env.example

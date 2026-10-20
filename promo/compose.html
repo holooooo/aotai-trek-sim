@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鳌太线 · 宣传片 9:16</title>
+<!-- 540x960 CSS px, rendered at dpr 2 -> 1080x1920. window.renderFrame(t) is deterministic. -->
+<link rel="stylesheet" href="compose.css">
+</head>
+<body>
+<div id="stage">
+  <div id="bgs"></div>
+  <div id="frost"></div>
+  <div class="shade" id="shade"></div>
+
+  <!-- 0 我做了个登山游戏 -->
+  <section id="sIntro" class="sc">
+    <div class="kick mono">QINLING · 3767M · WINTER</div>
+    <div class="h1a">我做了个</div>
+    <div class="h1b">登山游戏</div>
+  </section>
+
+  <!-- 1 它的最佳结局，你绝对猜不到 -->
+  <section id="sTease" class="sc">
+    <div class="tease">
+      <div class="tease-top"><span class="tag">ENDING 01 / 11</span></div>
+      <div class="tease-line">它的<b>最佳结局</b></div>
+      <div class="redact"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="stamp good" id="teaseStamp">机密</div>
+    </div>
+    <div class="qq">你绝对猜不到</div>
+  </section>
+
+  <!-- 2 鳌太线，秦岭最野的山脊 -->
+  <section id="sTitle" class="sc">
+    <div class="kick mono">AOSHAN → TAIBAI · 113 KM</div>
+    <div class="logo">鳌太线<small class="edition">3D版</small></div>
+    <div class="logo-sub">秦岭最野的山脊</div>
+    <svg id="profile" viewBox="0 0 440 120"></svg>
+  </section>
+
+  <!-- 3 至少46人在这里失踪或遇难 -->
+  <section id="s46" class="sc">
+    <div class="n46pre">至少</div>
+    <div class="n46"><b id="n46">46</b><span>人</span></div>
+    <div class="n46sub">在这里失踪或遇难</div>
+    <div class="n46src">2012–2017 · 中国登山协会等《鳌太穿越事故调查报告》</div>
+  </section>
+
+  <!-- 4 2018年起禁止穿越 -->
+  <section id="sBan" class="sc">
+    <div class="ban"><small>2018 年起</small>禁止穿越</div>
+    <div class="ban-sub">太白山国家级自然保护区 · 违者依法处罚</div>
+  </section>
+
+  <!-- 5 你可以在浏览器里冻一冻 -->
+  <section id="sBrowser" class="sc">
+    <div class="browser"><div class="bar"><i></i><i></i><i></i><span>aotai-trek-sim.pages.dev</span></div>
+      <div class="shot"><img id="vTitle" alt=""><div class="ice" id="ice"></div></div></div>
+    <div class="freeze" id="freeze">冻一冻</div>
+  </section>
+
+  <!-- 6 身份 -->
+  <section id="sRoles" class="sc">
+    <div class="sticker" id="st1">自信值 <b>MAX</b></div>
+    <div class="sticker" id="st2">钞能力 <b>✓</b>　体能 <b class="no">✗</b></div>
+  </section>
+
+  <!-- 7 村口 -->
+  <section id="sVillage" class="sc"><div class="loc"><span class="tag">12月31日 05:30</span>塘口村 · 海拔 1740m</div></section>
+
+  <!-- 8 小卖部 -->
+  <section id="sShop" class="sc"><div class="bigstamp" id="soldStamp">永远售罄</div></section>
+
+  <!-- 9 冷了怎么办 -->
+  <section id="sCold" class="sc">
+    <div class="temp" id="temp"><span class="ico-core"></span><small>核心体温</small><b id="tempNum">36.4</b><em>℃</em></div>
+    <div class="ask" id="ask">进了山，<br><b>冷了怎么办？</b></div>
+    <div class="item" id="it1"><span class="ico-baijiu"></span>喝口白酒？</div>
+    <div class="item" id="it2"><span class="ico-snow"></span>吃口雪？</div>
+    <div class="item" id="it3"><span class="ico-jacket"></span>穿羽绒服赶路？</div>
+    <div class="colder" id="c1">更冷。</div>
+    <div class="colder" id="c2">更冷。</div>
+    <div class="colder big" id="c3">还是更冷。</div>
+  </section>
+
+  <!-- 10 阵风 -->
+  <section id="sGust" class="sc">
+    <div class="gustw" id="gustw">阵　风<small>按住【稳住】</small></div>
+    <div class="key" id="key"><div class="cap" id="cap">SPACE</div><small>按住空格 · 压低重心</small></div>
+  </section>
+
+  <!-- 11 暴风雪 -->
+  <section id="sStorm" class="sc">
+    <div class="device" id="device">
+      <div class="dev-top"><b class="mono">01月01日 15:40</b><span class="ico-storm"></span><span>暴风雪</span></div>
+      <div class="dev-grid"><div><small>能见度</small><b class="mono">11 m</b></div><div><small>风</small><b class="mono">9 级</b></div><div><small>体感</small><b class="mono">-31°</b></div></div>
+    </div>
+    <div class="lost" id="lost"><span class="ico-warn"></span>路标消失 · 偏离路线</div>
+  </section>
+
+  <!-- 12 幻觉 -->
+  <section id="sHallu" class="sc">
+    <div class="dlg" id="hdlg">
+      <div class="dlg-head"><h3>……</h3><div class="sub">凌晨 · 水窝子附近</div></div>
+      <div class="dlg-body"><p>雾里亮起了一团暖黄色的光。</p><p>烤肠机在转，有人在冲你招手：<br>"来一根？刚烤好的！"</p></div>
+      <div class="dlg-choices">
+        <div class="choice" id="ch1"><b>朝光走过去</b><small>那边好暖和</small></div>
+        <div class="choice" id="ch2"><b>停下来，喝口水</b><small>这不可能是真的</small></div>
+      </div>
+    </div>
+    <div class="toast" id="htoast">光灭了。那里什么都没有。门口没有烤肠的山……</div>
+  </section>
+
+  <!-- 13 最佳结局是什么 -->
+  <section id="sGateHi" class="sc"><div class="hl" id="hlChoice"></div><div class="hand" id="hand">☝</div></section>
+
+  <!-- 14 转身 -->
+  <section id="sTurn" class="sc"><div class="loc" id="turnTag"><span class="tag">管护站</span>转身，下山</div></section>
+
+  <!-- 15 景区 -->
+  <section id="sScenic" class="sc"><div class="checks" id="checks"><span>有索道</span><span>有栈道</span><span>有信号</span><span class="hot">有烤肠</span></div></section>
+
+  <!-- 16 唯一不靠运气 -->
+  <section id="sEnd" class="sc"><div class="hl line" id="hlLine"></div></section>
+
+  <!-- 17 门口没有烤肠的山，不要爬 -->
+  <section id="sSlogan" class="sc">
+    <div class="bigSausage" id="bigSausage"></div>
+    <div class="slogan" id="slogan">门口没有烤肠的山，<br><b>不要爬。</b></div>
+  </section>
+
+  <!-- 18 片尾卡 -->
+  <section id="sCard" class="sc">
+    <div class="card" id="card">
+      <div class="card-head"><div><div class="logo sm">鳌太线<small class="edition">3D版</small></div><div class="logo-sub sm">冬季穿越模拟器</div></div><div class="stamp red">禁止穿越</div></div>
+      <div class="row qr-row" id="r1"><img class="qr" src="build/qr_play_updated.png" alt="在线游戏二维码"><div><span class="tag">在线玩</span><b class="mono url">aotai-trek-sim.pages.dev</b><small>扫码打开游戏 · 手机电脑都行</small></div></div>
+      <div class="row qr-row" id="r2"><img class="qr" src="build/qr_source_updated.png" alt="开源代码二维码"><div><span class="tag gh">开源代码</span><b class="mono url">github.com/holooooo/<br>aotai-trek-sim</b><small>扫码查看源码 · 代码全公开</small></div></div>
+      <div class="cmt" id="cmt">两个地址，扫码即可进入</div>
+      <div class="foot">鳌太线位于太白山国家级自然保护区，自 2018 年起禁止穿越。<br>游戏数值为近似，不能作为任何出行参考。</div>
+    </div>
+  </section>
+
+  <div id="sub"><span id="subText"></span></div>
+  <div id="chip"><span class="ico-sausage"></span>鳌太线 · 冬季穿越模拟器</div>
+  <div id="flash"></div>
+</div>
+<script src="timeline.js"></script>
+<script type="module" src="compose.js"></script>
+</body>
+</html>

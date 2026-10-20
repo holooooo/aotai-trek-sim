@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鳌太线 · promo film</title>
+<!-- Custom 3D shots for the promo, built on the game's own World / models.
+     Driven by headless Chrome: window.__step(dt) advances a virtual clock and renders one frame.
+     ?shot=<name> picks a shot from film.js; window.scout(opts) renders an arbitrary still. -->
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+  #c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+</style>
+<script>
+  // virtual clock: performance.now only moves when the renderer asks it to
+  (() => { let now = 1000; performance.now = () => now; window.__vclock = (dt) => { now += dt * 1000; }; })();
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module" src="./film.js"></script>
+</body>
+</html>

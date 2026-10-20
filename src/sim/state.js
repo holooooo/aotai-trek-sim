@@ -2,17 +2,22 @@
 import { roleById } from '../data/roles.js';
 import { ITEMS } from '../data/items.js';
 import { makeSchedule, START_TIME } from './weather.js';
+import { ensureStoryState } from './stories.js';
+import { difficultyProfile } from './difficulty.js';
 
-export function createState(roleId) {
+export function createState(roleId, difficulty = 'easy') {
   const role = roleById(roleId);
+  const profile = difficultyProfile(difficulty);
   const seed = (Math.random() * 1e9) | 0;
   const st = {
     v: 1,
     seed,
     role: roleId,
+    difficulty: profile.id,
     money: role.money,
     inv: {},
     wearInsul: false,
+    pace: 'walk',
     water: { liquid: 0, frozen: 0 },
     thermos: { l: 0, temp: 20 },
     gas: { normal: 0, alpine: 0 },
@@ -27,7 +32,7 @@ export function createState(roleId) {
     keepWarm: !!role.mods.keepWarmElectronics,
     body: {
       core: 37.0, stamina: 100, food: 85, water: 80, stress: role.id === 'student' ? 22 : 12,
-      health: 100, wet: 0, frostbite: 0, sprain: 0, fracture: 0, snowblind: 0, altSick: 0,
+      health: profile.maxHealth, wet: 0, frostbite: 0, sprain: 0, fracture: 0, snowblind: 0, altSick: 0,
       shiver: 0, sweating: 0, collapsed: false, lastHarm: 'hypothermia',
     },
     time: START_TIME,
@@ -50,6 +55,7 @@ export function createState(roleId) {
     ending: null,
   };
   for (const [id, n] of Object.entries(role.inv)) addItem(st, id, n);
+  ensureStoryState(st);
   return st;
 }
 

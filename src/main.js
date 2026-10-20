@@ -130,9 +130,11 @@ const app = {
     const st = game.st;
     if (!st || game.over) return;
     if (st.camp && st.camp.inside) return game.toast('先收起营地再出发。', 'warn');
+    if (st.flags.freeDescent) return game.toast('自行下撤时请手动移动；下撤菜单可切回既有路线。', 'info');
     game.autoWalk = !game.autoWalk;
     if (game.autoWalk && st.body.collapsed) game.toast('你现在走不动。先休息、吃点东西。', 'warn');
   },
+  togglePace() { game.togglePace(); },
   restMenu() {
     const st = game.st;
     if (!st || game.over || (st.camp && st.camp.inside)) return;
@@ -141,7 +143,7 @@ const app = {
         { id: '30', label: '休息30分钟', sub: st.wearInsul || !game.hasInsul() ? '' : '记得先穿上保暖层' },
         { id: '120', label: '休息2小时' },
       ];
-      if (st.rescue) choices.push({ id: 'wait', label: '原地等待救援', sub: `预计还要约 ${Math.max(0, (st.rescue.eta - st.time) / 60).toFixed(1)} 小时` });
+      if (st.rescue?.self) choices.push({ id: 'wait', label: '原地等待救援', sub: '抵达时间无法确认' });
       choices.push({ id: 'no', label: '算了' });
       const c = await game.dialog({ who: '休息', text: ['在寒风里坐下来，身体会很快变冷。找块背风的石头，穿上保暖层，吃点东西。'], choices });
       if (c === '30' || c === '120') await game.restFor(Number(c));
@@ -159,7 +161,8 @@ const app = {
   sos() {
     const st = game.st;
     if (!st || game.over) return;
-    if (st.rescue && st.rescue.self) return game.toast(`救援队已经在路上，预计还要约 ${Math.max(0, (st.rescue.eta - st.time) / 60).toFixed(1)} 小时。原地等待。`, 'info');
+    if (st.rescue?.self && st.rescue.moved) return game.updateRescuePosition();
+    if (st.rescue && st.rescue.self) return game.toast('救援队已经接到消息。请保存体力，保持联系，原地等待。', 'info');
     if (!game.comms().any) return game.toast(game.commsLabel(), 'warn', 4500);
     game.runEvent(async () => {
       const c = await game.dialog({
@@ -185,6 +188,7 @@ input.onKey((k) => {
   if (k === 'm') return ui.toggleSheet('map');
   if (ui.sheetOpen || game.busy || game.eventRunning) return;
   if (k === 'f') app.toggleAuto();
+  else if (k === 'v') app.togglePace();
   else if (k === 'r') app.restMenu();
   else if (k === 'c') app.camp();
   else if (k === 'x') app.retreat();

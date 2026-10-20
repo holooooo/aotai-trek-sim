@@ -9,7 +9,7 @@ const noiseC = makeNoise2D(WORLD_SEED + 13);
 const n1 = (t, k = 0) => noiseC(t, k * 17.3 + 0.5);
 
 const GRID = 32;
-const INFLUENCE = 150;
+const INFLUENCE = 260; // 覆盖低地区域侧向查询（最远 ~235 units），保证 nearest 精确
 
 export class Path {
   constructor(id, pts) {
@@ -229,7 +229,47 @@ function mainHeight(x, z, near) {
   h = Math.max(h, side - (1 - suppress) * 400);
   const floor = 1 + fbm(noiseB, x * 0.02, z * 0.02, 2) * 3;
   if (h < floor) h = floor;
+  // c2800 之后：山脊南侧（支线一侧，side>0）随侧向距离逐渐下降的可走低地。
+  // 侧向 40~235 units 内平滑下降到 LOW_V(<1600m)，沿 s 边界也用 smoothstep 缓入。
+  if (near.side > 0 && near.s > C2800_S - 80) {
+    const fs = smoothstep(C2800_S - 60, C2800_S + 80, near.s);
+    const drop = smoothstep(40, 235, near.d);
+    const target = e - (e - LOW_V) * drop + fbm(noiseA, x * 0.05, z * 0.05, 2) * 0.8 * (1 - drop);
+    const w = fs * smoothstep(32, 55, near.d);
+    const blended = lerp(h, target, w);
+    // 保证混合后单调不高于原地形（只削峰），避免跨界处出现抬升台阶。
+    h = Math.min(h, blended);
+  }
+  // 村口向西的出村土路（Sigma 结局通道）：沿路负方向到约 -50，宽约 6，缓坡。
+  const road = villageRoadBlend(x, z);
+  if (road) h = lerp(h, road.v, road.w);
   return h;
+}
+
+// —— 村口出村路 ——
+const V0 = mainPath.pointAt(0);
+const C2800_S = mainPath.waypoints.find((w) => w.id === 'c2800').s;
+const LOW_V = altToVox(1575); // 低地目标海拔 1575m < 1600m
+
+// 返回 null 表示不在路面影响范围内；否则返回 { v: 路面高度, w: 混合权重 }。
+function villageRoadBlend(x, z) {
+  const rx = x - V0.x, rz = z - V0.z;
+  const along = rx * V0.dx + rz * V0.dz;
+  const side = -rx * V0.dz + rz * V0.dx;
+  // 只覆盖村外（along <= -9），不碰村内沿路 s>0 的地标与摊位区。
+  if (along > -9 || along < -82 || Math.abs(side) > 14) return null;
+  const wSide = 1 - smoothstep(4, 14, Math.abs(side));
+  const wA = smoothstep(-84, -70, along) * (1 - smoothstep(-14, -9, along));
+  const w = wSide * wA;
+  if (w <= 0) return null;
+  // 村内端 6.5 缓降到 4.2（到 along=-44），再以 ~0.85/unit 的可走坡度爬上高地（接天然地面 ~34）。
+  const uDown = clamp((-along - 12) / 32, 0, 1);
+  const stDown = uDown * uDown * (3 - 2 * uDown);
+  const flat = lerp(6.5, 4.2, stDown) + fbm(noiseA, x * 0.09, z * 0.09, 2) * 0.35;
+  const uUp = clamp((-along - 44) / 36, 0, 1);
+  const stUp = uUp * uUp * (3 - 2 * uUp);
+  const v = lerp(flat, 27, stUp);
+  return { v, w };
 }
 
 // —— 下撤支线 ——
@@ -262,9 +302,10 @@ function buildBranch(def) {
       sum += raw[j]; c++;
     }
     const t = i / (path.n - 1);
-    // 与线性下降混合，保证可走
+    // 与线性下降混合，保证可走；末端权重收敛到 1，确保真正落地到 endV。
     const linear = lerp(mainPath.elevAt(wp.s), endV, Math.pow(t, 0.8));
-    let v = lerp(sum / c, linear, 0.55);
+    const mix = lerp(0.55, 1, smoothstep(0.65, 1, t));
+    let v = lerp(sum / c, linear, mix);
     if (i > 0) v = Math.min(v, prev - 0.02);
     v = Math.max(v, endV);
     path.e[i] = v;

@@ -6,6 +6,7 @@
   "description": "鳌太线徒步模拟器 —— 门口没有烤肠的山，不要爬。体素风格 three.js 生存模拟。",
   "scripts": {
     "dev": "vite --host",
+    "test": "node --test tests/*.test.js",
     "build": "vite build",
     "preview": "vite preview --host",
     "fonts": "python3 scripts/subset-fonts.py",

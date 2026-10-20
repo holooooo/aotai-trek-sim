@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鳌太线 · 封面</title>
+<!-- ?r=43 -> 720x540 CSS (x2 = 1440x1080) ; ?r=34 -> 540x720 CSS (x2 = 1080x1440).
+     Bottom-left / bottom-right corners are kept empty for platform UI (avatar, likes, duration). -->
+<style>
+@font-face { font-family: 'ZCOOL QingKe HuangYou'; src: url('/.fontsrc/ZCOOLQingKeHuangYou-Regular.ttf'); }
+@font-face { font-family: 'VT323'; src: url('/.fontsrc/VT323-Regular.ttf'); }
+:root { --orange: #ff5a1f; --red: #e5383b; --yellow: #ffc23a; --ink: #e8eef2; --ink2: #c9d3db; --line2: #3a4a56;
+  --display: 'ZCOOL QingKe HuangYou', 'PingFang SC', sans-serif; --mono: 'VT323', ui-monospace, monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #000; overflow: hidden; }
+body { font-family: 'PingFang SC', system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+#p { position: relative; overflow: hidden; background: #0b1116; }
+#p .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#p .veil { position: absolute; inset: 0; }
+.grain { position: absolute; inset: 0; opacity: 0.12; mix-blend-mode: overlay;
+  background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.5) 0 1px, transparent 1px 3px); }
+.kick { font-family: var(--mono); letter-spacing: 0.24em; color: rgba(232, 238, 242, 0.82); text-shadow: 2px 2px 0 rgba(0,0,0,.6); }
+.title { font-family: var(--display); line-height: 0.92; letter-spacing: 0.02em; text-shadow: 8px 8px 0 #000, 0 0 50px rgba(111, 183, 224, 0.35); }
+.sub { font-family: var(--display); letter-spacing: 0.22em; text-shadow: 3px 3px 0 #000; }
+.stamp { display: inline-block; font-family: var(--display); color: #ff3b3b; border: 5px solid #ff3b3b; padding: 2px 14px 4px; letter-spacing: 0.14em;
+  transform: rotate(-8deg); background: rgba(40, 6, 6, 0.35); box-shadow: inset 0 0 0 2px rgba(255, 59, 59, 0.35), 0 0 22px rgba(255, 59, 59, 0.3); text-shadow: 0 0 10px rgba(255,59,59,.4); }
+.tag { display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); color: var(--yellow); text-shadow: 3px 3px 0 #000; }
+.tag svg { filter: drop-shadow(3px 3px 0 #000); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips span { font-family: var(--display); padding: 3px 10px 5px; background: rgba(11, 17, 22, 0.82); border: 2px solid var(--line2); box-shadow: 3px 3px 0 rgba(0,0,0,.6); color: var(--ink2); letter-spacing: 0.06em; }
+.chips span b { font-weight: normal; color: var(--orange); }
+.bubble { position: absolute; font-family: var(--display); color: #160800; background: var(--yellow); border: 3px solid #000; box-shadow: 5px 5px 0 #000; padding: 6px 12px 8px; white-space: nowrap; }
+.bubble::after { content: ''; position: absolute; width: 14px; height: 14px; background: var(--yellow); border-right: 3px solid #000; border-bottom: 3px solid #000; }
+.big-s { position: absolute; filter: drop-shadow(8px 8px 0 #000); }
+.big-s svg { display: block; }
+/* 4:3 */
+.r43 #p { width: 720px; height: 540px; }
+.r43 .veil { background: linear-gradient(100deg, rgba(8,12,16,.9) 0%, rgba(8,12,16,.62) 34%, rgba(8,12,16,0) 60%), linear-gradient(0deg, rgba(8,12,16,.35), rgba(8,12,16,0) 30%); }
+.r43 .kick { position: absolute; left: 40px; top: 46px; font-size: 18px; }
+.r43 .title { position: absolute; left: 34px; top: 70px; font-size: 128px; }
+.r43 .sub { position: absolute; left: 42px; top: 196px; font-size: 34px; }
+.r43 .stamp { position: absolute; left: 44px; top: 248px; font-size: 24px; }
+.r43 .tag { position: absolute; left: 42px; top: 304px; font-size: 22px; }
+.r43 .chips { position: absolute; left: 42px; top: 346px; width: 360px; }
+.r43 .chips span { font-size: 15.5px; }
+.r43 .bubble { right: 34px; top: 44px; font-size: 20px; transform: rotate(3deg); }
+.r43 .bubble::after { left: 34px; bottom: -10px; transform: rotate(45deg); }
+.r43 .big-s { right: 46px; top: 40px; transform: rotate(8deg); }
+/* 3:4 */
+.r34 #p { width: 540px; height: 720px; }
+.r34 .veil { background: linear-gradient(180deg, rgba(8,12,16,.9) 0%, rgba(8,12,16,.7) 30%, rgba(8,12,16,.15) 52%, rgba(8,12,16,0) 64%), linear-gradient(0deg, rgba(8,12,16,.4), rgba(8,12,16,0) 26%); }
+.r34 .kick { position: absolute; left: 32px; top: 46px; font-size: 18px; }
+.r34 .title { position: absolute; left: 26px; top: 70px; font-size: 132px; }
+.r34 .sub { position: absolute; left: 34px; top: 200px; font-size: 34px; }
+.r34 .stamp { position: absolute; right: 36px; top: 210px; font-size: 24px; transform: rotate(8deg); }
+.r34 .tag { position: absolute; left: 34px; top: 262px; font-size: 25px; }
+.r34 .chips { position: absolute; left: 34px; top: 312px; width: 470px; }
+.r34 .chips span { font-size: 17px; }
+.r34 .bubble { right: 34px; top: 404px; font-size: 21px; transform: rotate(-3deg); }
+.r34 .bubble::after { right: 40px; bottom: -10px; transform: rotate(45deg); }
+.r34 .big-s { right: 22px; top: 34px; transform: rotate(10deg); }
+</style>
+</head>
+<body>
+<div id="p">
+  <img class="bg" id="bg" alt="">
+  <div class="veil"></div>
+  <div class="grain"></div>
+  <div class="kick">QINLING · 3767M · WINTER</div>
+  <div class="title">鳌太线</div>
+  <div class="sub">冬季穿越模拟器</div>
+  <div class="stamp">禁止穿越</div>
+  <div class="tag"><span id="sIcon"></span>门口没有烤肠的山，不要爬。</div>
+  <div class="chips"><span>11 种结局</span><span>失温 · 阵风 · 暴风雪</span><span>最佳结局：<b>买根烤肠</b></span><span>浏览器即玩 · 开源</span></div>
+  <div class="bubble">最佳结局你绝对猜不到</div>
+  <div class="big-s" id="bigS"></div>
+</div>
+<script type="module">
+import { icon } from '../src/ui/icons.js';
+const r = new URLSearchParams(location.search).get('r') || '43';
+document.body.className = 'r' + r;
+document.getElementById('bg').src = r === '34' ? 'build/stills/ridge_3.0.jpg' : 'build/stills/ridge_w_3.0.jpg';
+document.getElementById('sIcon').innerHTML = icon('sausage', { size: 34 });
+document.getElementById('bigS').innerHTML = icon('sausage', { size: r === '34' ? 120 : 110 });
+const img = document.getElementById('bg');
+await Promise.all([document.fonts.ready, img.decode()]);
+window.READY = true;
+</script>
+</body>
+</html>

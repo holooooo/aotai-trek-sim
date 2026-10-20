@@ -47,7 +47,7 @@ export const ROLES = [
     desc: '百公里越野赛完赛者，心肺强大，相信速度就是安全。体脂很低——在寒风里，这不是优点。',
     money: 3500,
     mods: { staminaDrain: 0.65, speed: 1.15, heatLoss: 1.25, stressGain: 1.0, nav: 1.0, firstAid: 0.1, persuade: 0.45, keepWarmElectronics: false },
-    skills: [{ name: '体能怪物', desc: '行走体力消耗 -35%，速度 +15%。' }],
+    skills: [{ name: '体能怪物', desc: '行走体力消耗 -35%，常速 +15%；速穿时可进一步提速。' }],
     flaws: [{ name: '低体脂', desc: '散热快 25%，停下来很快就会冷。' }, { name: '速通执念', desc: '休息时压力下降更慢。' }],
     inv: { pack_trail: 1, base_synth: 1, mid_fleece: 1, pants_hard: 1, shoes_trail: 1, headlamp: 1, gel: 6, water: 2 },
     look: { jacket: 0x00a6a6, pants: 0x111111, hat: 0xffffff, pack: 0xff5a1f, skin: 0xc99a6e },
