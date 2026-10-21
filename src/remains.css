@@ -6,5 +6,5 @@
 .remains-controls h4 { margin: 0 0 6px; color: var(--ink); }
 .remains-controls button { margin: 4px 5px 4px 0; }
 @media (max-width: 640px) and (orientation: portrait) {
-  .remains-prompt { left: calc(var(--sal) + 8px); bottom: calc(var(--sab) + 176px); transform: none; max-width: calc(100vw - var(--sal) - var(--sar) - 74px); }
+  .remains-prompt { left: 50%; bottom: calc(var(--sab) + 300px); transform: translateX(-50%); max-width: calc(100vw - var(--sal) - var(--sar) - 16px); }
 }
