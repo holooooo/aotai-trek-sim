@@ -39,6 +39,7 @@ bg('hud', 'rec_hud', 270);
 bg('gust', 'gust', 120);
 bg('blizzard', 'blizzard', 120);
 bg('stall', 'stall', 210);
+bg('bloodtrail', 'bloodtrail', 210);
 bg('gateui', 'rec_gate', 195);
 bg('turn', 'turn', 84);
 bg('sausage', 'sausage', 84);
@@ -106,11 +107,12 @@ const SCENES = [
   ['sGust', 30.66, 33.46],
   ['sStorm', 33.46, 36.48],
   ['sHallu', 36.48, 42.28],
-  ['sGateHi', 42.28, 46.10],
-  ['sTurn', 46.10, 47.31],
-  ['sScenic', 47.31, 50.37],
-  ['sSlogan', 50.37, 52.54],
-  ['sCard', 52.54, 60.00],
+  ['sBloodtrail', 42.28, 49.28],
+  ['sGateHi', 49.28, 53.10],
+  ['sTurn', 53.10, 54.31],
+  ['sScenic', 54.31, 57.37],
+  ['sSlogan', 57.37, 59.54],
+  ['sCard', 59.54, 67.00],
 ];
 const SUBS = [
   [0.50, 1.83, '我做了个登山游戏。'],
@@ -130,11 +132,11 @@ const SUBS = [
   [33.46, 36.32, '第二天，暴风雪来了，路标全看不见。'],
   [36.48, 39.27, '冻狠了，你还可能在雾里看见一个<b>烤肠摊</b>。'],
   [39.42, 41.48, '<b>别过去。</b> 那是你的幻觉。'],
-  [42.28, 44.11, '所以，最佳结局是什么？'],
-  [44.27, 47.15, '在管护站门口转身，去景区<b>买根烤肠</b>。'],
-  [47.31, 49.42, '全游戏<b>唯一一个</b>不靠运气的结局。'],
-  [50.37, 52.38, '门口没有烤肠的山，<b>不要爬</b>。'],
-  [52.54, 58.6, '浏览器就能玩，代码全开源。<br>两个地址，扫码就能进。'],
+  [49.28, 51.11, '所以，最佳结局是什么？'],
+  [51.27, 54.15, '在管护站门口转身，去景区<b>买根烤肠</b>。'],
+  [54.31, 56.42, '全游戏<b>唯一一个</b>不靠运气的结局。'],
+  [57.37, 59.38, '门口没有烤肠的山，<b>不要爬</b>。'],
+  [59.54, 65.60, '浏览器就能玩，代码全开源。<br>两个地址，扫码就能进。'],
 ];
 
 const els = {};
@@ -157,10 +159,11 @@ function renderFrame(t) {
     if (t < 33.46) return showBg('gust', t - 30.66, { zoom: 1.04 });
     if (t < 36.48) return showBg('blizzard', t - 33.46, { zoom: 1.06 });
     if (t < 42.28) return showBg('stall', (t - 36.48) * (6.6 / 5.8), { zoom: 1.02 });
-    if (t < 46.10) return showBg('gateui', Math.min(0.4 + Math.max(0, t - 42.28) * 0.9, 6.2));
-    if (t < 47.31) return showBg('turn', t - 46.10, { zoom: 1.02 });
-    if (t < 50.37) return showBg('sausage', Math.min((t - 47.31) * 1.3, 2.6), { zoom: lerp(1.0, 1.05, ease((t - 47.31) / 3)) });
-    return showBg('outro', t - 50.37, { zoom: 1.0 });
+    if (t < 49.28) return showBg('bloodtrail', t - 42.28, { zoom: 1.0, dim: 1 });
+    if (t < 53.10) return showBg('gateui', Math.min(0.4 + Math.max(0, t - 49.28) * 0.9, 6.2));
+    if (t < 54.31) return showBg('turn', t - 53.10, { zoom: 1.02 });
+    if (t < 57.37) return showBg('sausage', Math.min((t - 54.31) * 1.3, 2.6), { zoom: lerp(1.0, 1.05, ease((t - 54.31) / 3)) });
+    return showBg('outro', t - 57.37, { zoom: 1.0 });
   };
   const shown = bgOf();
   for (const L of Object.values(layers)) if (L.img !== shown) L.img.style.opacity = 0;
@@ -187,12 +190,12 @@ function renderFrame(t) {
     $('#sub').style.opacity = 1;
   } else $('#sub').style.opacity = 0;
 
-  $('#sub').style.bottom = t >= 52.54 ? '60px' : '252px';
+  $('#sub').style.bottom = t >= 59.54 ? '60px' : '252px';
   // 常驻角标
-  const ui = (t >= 15.02 && t < 20.49) || (t >= 21.55 && t < 25.05) || (t >= 30.45 && t < 30.66) || (t >= 42.28 && t < 46.10);
-  $('#chip').style.opacity = t > 1.6 && t < 52.4 && !ui ? 1 : 0;
+  const ui = (t >= 15.02 && t < 20.49) || (t >= 21.55 && t < 25.05) || (t >= 30.45 && t < 30.66) || (t >= 49.28 && t < 53.10);
+  $('#chip').style.opacity = t > 1.6 && t < 59.4 && !ui ? 1 : 0;
   // 白色闪切
-  const flashAt = [1.95, 7.41, 33.46, 42.28, 50.37];
+  const flashAt = [1.95, 7.41, 33.46, 42.28, 49.28, 57.37];
   let f = 0;
   for (const ft of flashAt) { const d = t - ft; if (d >= 0 && d < 0.18) f = Math.max(f, 1 - d / 0.18); }
   $('#flash').style.opacity = f * 0.85;
@@ -359,6 +362,6 @@ const anim = {
 };
 
 window.renderFrame = renderFrame;
-window.DURATION = 59.988;
+window.DURATION = 66.988;
 renderFrame(0);
 window.READY = true;

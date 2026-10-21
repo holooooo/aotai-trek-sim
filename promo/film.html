@@ -9,6 +9,31 @@
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
   #c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  /* Posed by the shot's virtual clock; no wall-clock CSS animations in captured frames. */
+  #bloodtrail-ui { position: fixed; inset: 0; overflow: hidden; pointer-events: none; color: #e8eef2; font-family: 'ZCOOL QingKe HuangYou', sans-serif; }
+  #bloodtrail-ui[hidden] { display: none; }
+  .blood-discovery { position: absolute; top: 15%; left: 50%; width: max-content; max-width: calc(100% - 40px); transform: translateX(-50%); padding: 8px 12px; border-left: 4px solid #9b4244; background: rgba(11,17,22,.88); font-size: clamp(19px,4.4vw,29px); box-shadow: 4px 4px 0 rgba(0,0,0,.5); }
+  .blood-prompt { position: absolute; left: 50%; bottom: 29%; width: max-content; max-width: calc(100% - 40px); padding: 9px 14px 12px; background: rgba(11,17,22,.94); border: 2px solid #3a4a56; font-size: clamp(21px,4.8vw,30px); box-shadow: 5px 5px 0 rgba(0,0,0,.6); }
+  .blood-prompt kbd { display: inline-block; padding: 0 6px; margin-right: 7px; color: #ffc23a; border: 1px solid #657583; font: inherit; }
+  .blood-prompt-track { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #26333d; }
+  #blood-prompt-fill { height: 100%; background: #b95a57; transform-origin: left; }
+  .blood-record { position: absolute; left: 50%; bottom: 19%; box-sizing: border-box; width: min(470px,calc(100% - 40px)); background: rgba(17,26,33,.97); border: 2px solid #3a4a56; box-shadow: 7px 7px 0 rgba(0,0,0,.6); }
+  .blood-record-head { padding: 12px 16px 10px; border-bottom: 2px dashed #26333d; }
+  .blood-record-kicker { margin-bottom: 5px; color: #9aaebb; font-size: clamp(15px,3.3vw,19px); letter-spacing: .08em; }
+  #blood-record-title { margin: 0; font-size: clamp(25px,5.5vw,35px); font-weight: normal; line-height: 1.15; }
+  .blood-record-body { padding: 12px 16px 14px; }
+  #blood-record-cause { color: #e7a4a1; font-size: clamp(30px,6.6vw,42px); line-height: 1.2; }
+  #blood-record-detail { margin: 8px 0 0; color: #c5d2dc; font-size: clamp(19px,4.2vw,25px); line-height: 1.35; }
+  .blood-record-foot { padding: 8px 16px; border-top: 1px solid #26333d; color: #90a4b2; font-size: clamp(14px,3vw,17px); }
+  #blood-danmaku { position: absolute; top: 24%; left: 0; white-space: nowrap; font-size: clamp(28px,6vw,40px); text-shadow: 2px 2px 0 #0b1116,-1px -1px 0 #0b1116,1px -1px 0 #0b1116,-1px 1px 0 #0b1116; will-change: transform; }
+  .blood-subtitle { position: absolute; bottom: 5.5%; left: 50%; box-sizing: border-box; width: min(680px,calc(100% - 36px)); margin: 0; color: #e8eef2; text-align: center; font-size: clamp(22px,4.8vw,31px); line-height: 1.35; text-shadow: 2px 2px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000; }
+  @media (min-aspect-ratio: 1/1) {
+    .blood-record { bottom: 16%; width: min(460px,46vw); left: 72%; }
+    .blood-prompt { bottom: 18%; }
+    #blood-danmaku { top: 16%; }
+    .blood-discovery { top: 10%; }
+    .blood-subtitle { bottom: 4%; }
+  }
 </style>
 <script>
   // virtual clock: performance.now only moves when the renderer asks it to
@@ -17,6 +42,17 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="bloodtrail-ui" hidden aria-hidden="true">
+  <div id="blood-discovery" class="blood-discovery">路上有一片血迹。</div>
+  <div id="blood-prompt" class="blood-prompt"><kbd>G</kbd>靠近查看死因<div class="blood-prompt-track"><div id="blood-prompt-fill"></div></div></div>
+  <section id="blood-record" class="blood-record" aria-label="游戏行程记录">
+    <div class="blood-record-head"><div class="blood-record-kicker">血迹 · 行程档案</div><h1 id="blood-record-title">你上一次行程的血迹</h1></div>
+    <div class="blood-record-body"><div id="blood-record-cause">死因 · 失温</div><p id="blood-record-detail">体温 32.8℃ · 湿衣 · 夜间停步</p></div>
+    <div class="blood-record-foot">游戏角色记录 · 血迹显示可随时关闭</div>
+  </section>
+  <div id="blood-danmaku">又是类魂...</div>
+  <p id="blood-subtitle" class="blood-subtitle">沿途查看自己与其他玩家留下的血迹；可随时关闭</p>
+</div>
 <script type="module" src="./film.js"></script>
 </body>
 </html>

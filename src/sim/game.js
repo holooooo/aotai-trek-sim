@@ -1,3 +1,5 @@
+import { makeBloodstain, placeBloodstain, disposeBloodstain } from '../world/bloodstain.js';
+import { CAUSE_NAMES } from './remains.js';
 import { makeQuestion } from '../analytics/polls.js';
 // 游戏主控：移动、模拟循环、危险判定、扎营、救援、路遇驴友、结局。
 import * as THREE from 'three';
@@ -59,6 +61,9 @@ export class Game {
 
   // ———————————————————— 生命周期 ————————————————————
   start(st, { fresh = false } = {}) {
+    this.clearRemains();
+    this.remains?.reset();
+    this.remainsTimer = 0;
     this.eventCamera?.reset();
     this.clearEventActor();
     this.st = st;
@@ -133,6 +138,8 @@ export class Game {
   }
 
   dispose() {
+    this.clearRemains();
+    this.remains?.reset();
     this.eventCamera?.reset();
     this.clearEventActor();
     for (const id of Object.keys(this.npcRt)) this._removeNpcMeshes(id);
@@ -273,6 +280,7 @@ export class Game {
       }
     }
     this.updateNpcs(dt);
+    this.updateRemains(dt);
     this.updateVisuals(dt);
     this.hudTimer -= dt;
     if (this.hudTimer <= 0) { this.refreshHud(); this.hudTimer = 0.12; }
@@ -2025,6 +2033,7 @@ export class Game {
     const st = this.st;
     const resuming = !!st.ending?.pending;
     st.ending = resuming ? st.ending : { type, cause, pending: true };
+    if (type === 'dead') this.remains?.recordDeath(st, this.pos, cause, voxToAlt(this.pos.y));
     this.ui.hideCampMenu();
     if (!resuming) st.story.resolutions = [];
     // 山下后续也是存档的一部分；刷新后继续结算，不能退回山上。
@@ -2120,6 +2129,64 @@ export class Game {
     this.ui.hideCampMenu();
     this.ui.hideCampPlacer();
     this.ui.showEnding({ type, cause, role: this.role, stats, fates, epilogues, newEpilogues, decisions: st.story.decisions, resolutions: st.story.resolutions });
+  }
+
+  // ———————————————————— 死亡血迹 ————————————————————
+  clearRemains() {
+    for (const rt of this.remainsRt?.values() || []) disposeBloodstain(rt.mesh);
+    this.remainsRt = new Map();
+    this.ui?.setRemainsPrompt?.(null);
+  }
+
+  updateRemains(dt = 0) {
+    if (!this.remains || !this.st || this.over) return;
+    this.remainsTimer = (this.remainsTimer || 0) - dt;
+    if (this.remainsTimer > 0) return;
+    this.remainsTimer = .3;
+    this.remains.tick(this.st.path, this.pos);
+    const rows = this.remains.nearby(this.st.path, this.pos, new Set(this.remainsRt?.keys()));
+    this.remainsRt ||= new Map();
+    const ids = new Set(rows.map(r => r.id));
+    for (const [id, rt] of this.remainsRt) {
+      if (!ids.has(id)) { disposeBloodstain(rt.mesh); this.remainsRt.delete(id); }
+    }
+    for (const record of rows) {
+      if (this.remainsRt.has(record.id)) continue;
+      const mesh = makeBloodstain({ own: record.own, seed: record.id });
+      placeBloodstain(mesh, record, (x, z) => this.world.height(x, z));
+      this.world.scene.add(mesh);
+      this.remainsRt.set(record.id, { record, mesh });
+    }
+    const nearest = this.nearestRemains();
+    this.ui.setRemainsPrompt?.(nearest?.record || null);
+  }
+
+  nearestRemains() {
+    if (!this.remains?.enabled || this.st?.camp?.inside || this.falling) return null;
+    let nearest = null, best = 3.2;
+    for (const rt of this.remainsRt?.values() || []) {
+      const r = rt.record;
+      if (r.path !== this.st?.path || Math.abs(this.pos.y - this.world.height(r.x, r.z)) > 2) continue;
+      const d = Math.hypot(r.x - this.pos.x, r.z - this.pos.z);
+      if (d < best) { best = d; nearest = rt; }
+    }
+    return nearest;
+  }
+
+  async inspectRemains() {
+    if (!this.st || this.over || this.busy || this.eventRunning || this.ui.modalOpen) return;
+    const rt = this.nearestRemains();
+    if (!rt) return;
+    const r = rt.record;
+    this.autoWalk = false;
+    await this.ui.dialog({ who: r.own ? '你曾留在这里的血迹' : '一位旅人的血迹', sub: '死亡遗迹 · 游戏角色记录',
+      text: [
+        `${r.own ? '这是你之前一局留下的记录。' : '这是其他玩家匿名共享的记录。'}地上的血迹仅是死亡标记，不表示现实事故或出血。`,
+        `死因：${CAUSE_NAMES[r.cause]} · ${roleById(r.role)?.short || r.role} · ${difficultyProfile(r.difficulty).name}`,
+        `行程时间：${fmtDateTime(r.gameMinute)} · 游戏海拔约 ${Math.round(r.altitude)} m`,
+        `最终体温 ${r.core.toFixed(1)}℃ · 健康 ${Math.round(r.health)}% · 饱食 ${Math.round(r.food)} · 水分 ${Math.round(r.water)} · 压力 ${Math.round(r.stress)}`,
+        '血迹不会改变物资、身体状态或指路。可在菜单中关闭死亡血迹。',
+      ], choices: [{ id: 'close', label: '记住教训，继续走' }] });
   }
 
   // ———————————————————— 视觉 ————————————————————

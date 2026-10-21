@@ -1,7 +1,9 @@
 // 入口：组装世界、输入、音频、界面与游戏，管理标题场景与主循环。
 import './style.css';
 import './hud.css';
+import './remains.css';
 import { AnalyticsClient } from './analytics/client.js';
+import { RemainsClient } from './sim/remains.js';
 import * as THREE from 'three';
 import { World } from './world/world.js';
 import { Input } from './ui/input.js';
@@ -31,6 +33,9 @@ ui.music = music;
 const game = new Game(world, ui, input, audio);
 game.music = music;
 game.analytics = analytics;
+const remains = new RemainsClient({ fetcher: (...args) => (import.meta.env.PROD || globalThis.__AOTAI_TEST_REMAINS__) ? fetch(...args) : Promise.reject(new Error('local-only')) });
+game.remains = remains;
+ui.remains = remains;
 ui.game = game;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -99,6 +104,14 @@ function startTrek(st, fresh) {
 }
 
 const app = {
+  toggleRemains(shared = false) {
+    if (shared) remains.setShared(!remains.shared);
+    else remains.setEnabled(!remains.enabled);
+    game.clearRemains();
+    if (game.st && !game.over) game.updateRemains(1);
+    ui.toast(!remains.enabled ? '死亡血迹已关闭；停止显示、查询和新增共享' : remains.shared ? '死亡血迹已开启；匿名共享并只加载附近记录' : '仅显示本机血迹；已停止联网共享', 'info');
+  },
+  clearRemains() { remains.clearLocal(); game.clearRemains(); ui.toast('本机血迹已清空；已共享记录会在30天后过期', 'info'); },
   toggleAnalytics() {
     analytics.setEnabled(!analytics.enabled);
     if (analytics.enabled && game.st && !game.over) analytics.beginRun(game.st, { fresh: false });
@@ -198,6 +211,7 @@ input.onKey((k) => {
   else if (k === 'c') app.camp();
   else if (k === 'x') app.retreat();
   else if (k === 'h') app.sos();
+  else if (k === 'g') void game.inspectRemains();
 });
 
 // 音频需要用户手势解锁

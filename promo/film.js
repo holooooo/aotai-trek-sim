@@ -249,6 +249,74 @@ SHOTS.blizzard = {
   },
 };
 
+// 6b. 血迹：发现 → 靠近 → 查看自己与匿名行程的死因；无尸体或魂魄回放。
+// Capture with ?shot=bloodtrail. Main edit can use these local-time beats without changing other shots.
+SHOTS.bloodtrail = {
+  dur: 7,
+  inspect: 3.35,
+  anonymous: 5.05,
+  danmaku: 4.25,
+  async setup(S) {
+    const { makeBloodstain, placeBloodstain, disposeBloodstain } = await import('../src/world/bloodstain.js');
+    S.s0 = wpS('qiaomai') + 24;
+    S.spot = along(S.s0 + 3.7, 0.65);
+    S.otherSpot = along(S.s0 + 5.1, -0.55);
+    load(S.spot.x, S.spot.z);
+    S.h = hiker();
+    S.blood = makeBloodstain({ own: true, seed: 'promo-previous-run' });
+    S.otherBlood = makeBloodstain({ own: false, seed: 'promo-anonymous-run' });
+    placeBloodstain(S.blood, S.spot, ground);
+    placeBloodstain(S.otherBlood, S.otherSpot, ground);
+    world.scene.add(S.blood, S.otherBlood);
+    window.addEventListener('pagehide', () => {
+      disposeBloodstain(S.blood);
+      disposeBloodstain(S.otherBlood);
+    }, { once: true });
+    S.ui = document.getElementById('bloodtrail-ui');
+    S.ui.hidden = false;
+    S.uiParts = Object.fromEntries(['discovery', 'prompt', 'prompt-fill', 'record', 'record-title', 'record-cause', 'record-detail', 'danmaku', 'subtitle'].map((id) => [id, document.getElementById(`blood-${id}`)]));
+  },
+  frame(S, t, dt) {
+    const shot = SHOTS.bloodtrail;
+    const approach = smooth((t - 0.55) / 2.15);
+    const crouch = smooth((t - 2.75) / 0.4);
+    const other = smooth((t - shot.anonymous + 0.15) / 0.5);
+    const a = along(S.s0 + approach * 2.15, 0.1 + approach * 0.15);
+    const target = V(S.spot.x, S.spot.y + 0.06, S.spot.z).lerp(V(S.otherSpot.x, S.otherSpot.y + 0.06, S.otherSpot.z), other);
+    S.h.position.set(a.x, a.y, a.z);
+    S.h.rotation.y = a.yaw + other * 0.15;
+    const walking = t > 0.55 && t < 2.7;
+    M.animateCharacter(S.h, dt, walking, 0.5, crouch > 0.5 ? 'crouch' : 'stand');
+    S.h.userData.head.rotation.x = 0.16 + crouch * 0.28;
+    const push = ease((t - 0.25) / 3.1);
+    const c = along(S.s0 - 3.7 + push * 3.65, -2.45 + push * 0.6);
+    look(V(c.x, Math.max(c.y, a.y) + 2.7 - push * 0.7, c.z), V(lerp(a.x, target.x, 0.68 + push * 0.23), lerp(a.y + 0.95, target.y, push * 0.9), lerp(a.z, target.z, 0.68 + push * 0.23)));
+    atmo({ hour: 16.3, overcast: 0.9, vis: 42, fog: 0.7, precip: 0.06, wind: { x: 3, z: 1 }, desat: 0.22, vignette: 0.3, cold: 0.32 }, dt, S.h.position,
+      { breath: breathOf(S.h, 1, 0.45), footstep: footOf(S.h, walking) });
+
+    // All overlay timing uses t, including the danmaku: __warm / __seek remain deterministic.
+    const ui = S.uiParts;
+    const fade = (start, end, inTime = 0.18, outTime = 0.18) => smooth((t - start) / inTime) * (1 - smooth((t - end) / outTime));
+    ui.discovery.style.opacity = fade(0.45, 2.2);
+    ui.prompt.style.opacity = fade(2.25, shot.inspect - 0.16);
+    ui.prompt.style.transform = `translate(-50%,${(1 - ease((t - 2.25) / 0.18)) * 8}px)`;
+    ui['prompt-fill'].style.transform = `scaleX(${clamp((t - 2.8) / (shot.inspect - 2.8))})`;
+    ui.record.style.opacity = fade(shot.inspect, shot.dur - 0.18);
+    ui.record.style.transform = `translate(-50%,${(1 - ease((t - shot.inspect) / 0.22)) * 14}px)`;
+    const anonymous = t >= shot.anonymous;
+    ui['record-title'].textContent = anonymous ? '匿名行程记录' : '你上一次行程的血迹';
+    ui['record-cause'].textContent = anonymous ? '死因 · 滑坠' : '死因 · 失温';
+    ui['record-detail'].textContent = anonymous ? '刃脊 · 阵风中继续行走' : '体温 32.8℃ · 湿衣 · 夜间停步';
+    ui.record.dataset.record = anonymous ? 'anonymous' : 'own';
+    const commentT = clamp((t - shot.danmaku) / (shot.dur - shot.danmaku));
+    ui.danmaku.style.opacity = t >= shot.danmaku && t < shot.dur ? 1 : 0;
+    ui.danmaku.style.transform = `translateX(${lerp(innerWidth + 16, -ui.danmaku.offsetWidth - 16, commentT)}px)`;
+    ui.subtitle.style.opacity = fade(0.55, shot.dur - 0.18);
+    ui.subtitle.style.transform = 'translateX(-50%)';
+    S.ui.dataset.phase = t < 2.25 ? 'discover' : t < shot.inspect ? 'approach' : anonymous ? 'anonymous' : 'own';
+  },
+};
+
 // 7. 幻觉：雾夜里亮起一个烤肠摊，摊主在招手；然后熄灭
 function glowSprite(color = '255,190,110', size = 7) {
   const cv = document.createElement('canvas'); cv.width = cv.height = 128;
@@ -590,7 +658,7 @@ const shot = SHOTS[name];
 const S = {};
 let t = 0;
 if (shot) {
-  shot.setup(S);
+  await shot.setup(S);
   if (S.h) S.h.position.set(0, -100, 0);
 }
 function stepTo(dt) {

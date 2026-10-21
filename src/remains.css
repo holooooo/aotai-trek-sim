@@ -1,0 +1,10 @@
+/* 死亡遗迹靠近提示；不阻挡移动，按钮自身可交互。 */
+.remains-prompt { position: absolute; left: 50%; bottom: calc(var(--sab) + 84px); transform: translateX(-50%); min-width: 164px; min-height: 46px; padding: 10px 16px; border: 1px solid rgba(214, 126, 117, .7); background: rgba(20, 19, 22, .9); color: #f3ded9; font: inherit; font-weight: 700; pointer-events: auto; }
+.remains-prompt kbd { margin-left: 8px; color: #d3b6ad; font-family: var(--mono); }
+.remains-prompt[hidden], #hud.ui-blocked .remains-prompt { display: none; }
+.remains-controls { border-top: 1px solid var(--line); padding-top: 12px; }
+.remains-controls h4 { margin: 0 0 6px; color: var(--ink); }
+.remains-controls button { margin: 4px 5px 4px 0; }
+@media (max-width: 640px) and (orientation: portrait) {
+  .remains-prompt { left: calc(var(--sal) + 8px); bottom: calc(var(--sab) + 176px); transform: none; max-width: calc(100vw - var(--sal) - var(--sar) - 74px); }
+}

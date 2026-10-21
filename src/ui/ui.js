@@ -108,7 +108,16 @@ export class UI {
   }
 
   privacyControls() {
-    return `<div class="privacy-controls"><p>匿名统计默认开启，使用随机浏览器编号汇总游玩、道具、事件与结局；应用不保存姓名、IP或精确位置。Cloudflare处理基础网络连接信息。你可随时关闭；关闭后停止上报并清除本机标识与队列，旧本地历史不会补报。选择比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '匿名统计已关闭 · 点击开启'}</button></div>`;
+    return `<div class="privacy-controls"><p>匿名统计默认开启，使用随机浏览器编号汇总游玩、道具、事件与结局；匿名统计不保存姓名、IP或现实地理位置。死亡血迹的游戏坐标共享由下方独立开关控制。Cloudflare处理基础网络连接信息。你可随时关闭；关闭后停止上报并清除本机标识与队列，旧本地历史不会补报。选择比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '匿名统计已关闭 · 点击开启'}</button></div>`;
+  }
+
+  remainsControls() {
+    const r = this.remains;
+    return `<div class="privacy-controls remains-controls"><h4>死亡血迹</h4><p>地面血迹记录自己过去行程和附近玩家的死因，仅是游戏标记。只加载附近记录；关闭后停止显示、查询和新增共享。</p>
+      <button class="sbtn ${r?.enabled ? 'on' : 'alt'}" data-act="remains" aria-pressed="${!!r?.enabled}">${r?.enabled ? '死亡血迹已开启 · 点击关闭' : '死亡血迹已关闭 · 点击开启'}</button>
+      <button class="sbtn ${r?.shared ? 'on' : 'alt'}" data-act="remains-shared" aria-pressed="${!!r?.shared}" ${r?.enabled ? '' : 'disabled'}>${r?.shared ? '匿名共享已开启' : '仅显示本机记录'}</button>
+      <p>共享仅含随机记录编号、游戏坐标、角色、死因和最终状态，保留30天；独立于匿名统计。关闭共享会丢弃待发记录，重新开启不会补报旧记录。本机最多保存60条。</p>
+      <button class="sbtn alt" data-act="remains-clear">清空本机血迹</button></div>`;
   }
 
   showTitle({ hasSave }) {
@@ -133,11 +142,15 @@ export class UI {
       </div>
       <div class="title-foot">
         ${this.privacyControls()}
+        ${this.remainsControls()}
         本游戏根据公开报道改编，人物均为化名或虚构。鳌太线位于太白山国家级自然保护区，<b>自2018年起禁止穿越</b>。
         游戏中的路线、海拔与数值均为近似，<b>不能作为任何出行参考</b>。
       </div>`, 'title-page', 'title');
     this._bind(page, {
       privacy: () => { this.app.toggleAnalytics(); this.showTitle({ hasSave }); },
+      remains: () => { this.app.toggleRemains(); this.showTitle({ hasSave }); },
+      'remains-shared': () => { this.app.toggleRemains(true); this.showTitle({ hasSave }); },
+      'remains-clear': () => { this.app.clearRemains(); this.showTitle({ hasSave }); },
       continue: () => this.app.continueGame(),
       new: () => this.showRoles(),
       records: () => this.showRecords(() => this.app.toTitle()),
@@ -426,8 +439,9 @@ export class UI {
             <button class="abtn big hold" data-hold="crouch">${icon('brace', { size: 26 })}稳住<kbd>␣</kbd></button>
             <button class="abtn big" data-act="auto">${icon('auto', { size: 26 })}沿路走<kbd>F</kbd></button>
           </div>
-        </div>        ${this.isMobile ? '' : '<div class="keyhint"><span><kbd>WASD</kbd>移动</span><span><kbd>拖拽</kbd><kbd>Q</kbd><kbd>E</kbd>视角</span><span><kbd>F</kbd>沿路走</span><span><kbd>V</kbd>速穿</span><span><kbd>空格</kbd>稳住</span><span><kbd>B</kbd>背包</span><span><kbd>M</kbd>地图</span></div>'}
-        <div class="gust">阵　风<small>按住【稳住】</small></div>`;
+        </div>        ${this.isMobile ? '' : '<div class="keyhint"><span><kbd>WASD</kbd>移动</span><span><kbd>拖拽</kbd><kbd>Q</kbd><kbd>E</kbd>视角</span><span><kbd>F</kbd>沿路走</span><span><kbd>V</kbd>速穿</span><span><kbd>空格</kbd>稳住</span><span><kbd>B</kbd>背包</span><span><kbd>M</kbd>地图</span><span><kbd>G</kbd>查看血迹</span></div>'}
+        <div class="gust">阵　风<small>按住【稳住】</small></div>
+        <button class="remains-prompt" data-act="inspect-remains" hidden>查看血迹 <kbd>G</kbd></button>`;
       this.h = {};
       hud.querySelectorAll('[data-h]').forEach((e) => { this.h[e.dataset.h] = e; });
       this.hv = {};
@@ -445,6 +459,7 @@ export class UI {
         pack: () => this.openPack(),
         map: () => this.openMap(),
         menu: () => this.openMenu(),
+        'inspect-remains': () => void this.game?.inspectRemains(),
         auto: () => this.app.toggleAuto(),
         pace: () => this.app.togglePace(),
         rest: () => this.app.restMenu(),
@@ -462,6 +477,16 @@ export class UI {
     this.h.actSecondary.hidden = !expanded;
     hud.hidden = false;
     this.el.joy.hidden = !this.isMobile;
+  }
+
+  setRemainsPrompt(record) {
+    const id = record?.id || null;
+    if (this._remainsPromptId === id) return;
+    this._remainsPromptId = id;
+    const button = this.el.hud.querySelector('.remains-prompt');
+    if (!button) return;
+    button.hidden = !record;
+    if (record) button.textContent = record.own ? '查看自己的血迹　G' : '查看旅人血迹　G';
   }
 
   toggleHudMore() {
@@ -924,10 +949,14 @@ export class UI {
         <button class="btn danger" data-act="quit">放弃本局，回到标题</button>
       </div>
       ${this.privacyControls()}
+      ${this.remainsControls()}
       <div style="font-size:12px;color:var(--muted)">游戏会在抵达途经点、睡觉后自动存档。</div>`);
     this._bind(el, {
       close: () => this.closeSheet(),
       privacy: () => { this.app.toggleAnalytics(); this.openMenu(); },
+      remains: () => { this.app.toggleRemains(); this.openMenu(); },
+      'remains-shared': () => { this.app.toggleRemains(true); this.openMenu(); },
+      'remains-clear': () => { this.app.clearRemains(); this.openMenu(); },
       q: (d) => { world.applyQuality(d.id); this.openMenu(); },
       sound: () => { this.audio?.setMuted(!this.audio.muted); this.openMenu(); },
       vol: (d) => { if (this.music) this.music.setVolume(Math.max(0, Math.min(1, this.music.volume + Number(d.d)))); this.openMenu(); },
