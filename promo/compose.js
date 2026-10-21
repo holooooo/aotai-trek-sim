@@ -113,6 +113,7 @@ const SCENES = [
   ['sScenic', 54.31, 57.37],
   ['sSlogan', 57.37, 59.54],
   ['sCard', 59.54, 67.00],
+  ['sHook', 67.00, 75.00],
 ];
 const SUBS = [
   [0.50, 1.83, '我做了个登山游戏。'],
@@ -137,6 +138,8 @@ const SUBS = [
   [54.31, 56.42, '全游戏<b>唯一一个</b>不靠运气的结局。'],
   [57.37, 59.38, '门口没有烤肠的山，<b>不要爬</b>。'],
   [59.54, 65.60, '浏览器就能玩，代码全开源。<br>两个地址，扫码就能进。'],
+  [67.18, 69.72, '说真的，这游戏<b>实在太难了</b>。'],
+  [69.88, 74.78, '主播自己都没有通关过，大佬们评论区分享下技巧呀！'],
 ];
 
 const els = {};
@@ -195,7 +198,7 @@ function renderFrame(t) {
   const ui = (t >= 15.02 && t < 20.49) || (t >= 21.55 && t < 25.05) || (t >= 30.45 && t < 30.66) || (t >= 49.28 && t < 53.10);
   $('#chip').style.opacity = t > 1.6 && t < 59.4 && !ui ? 1 : 0;
   // 白色闪切
-  const flashAt = [1.95, 7.41, 33.46, 42.28, 49.28, 57.37];
+  const flashAt = [1.95, 7.41, 33.46, 42.28, 49.28, 57.37, 67.00];
   let f = 0;
   for (const ft of flashAt) { const d = t - ft; if (d >= 0 && d < 0.18) f = Math.max(f, 1 - d / 0.18); }
   $('#flash').style.opacity = f * 0.85;
@@ -359,9 +362,19 @@ const anim = {
       set($(sel), { opacity: r, transform: `translateY(${(1 - r) * 12}px)` });
     }
   },
+  sHook(u) {
+    const k = ease(u / 0.42);
+    set($('#hookCard'), { opacity: k, transform: `translateY(${(1 - k) * 28}px) scale(${0.96 + 0.04 * k})` });
+    const stamp = pop((u - 0.72) / 0.34);
+    set($('#hookStamp'), { opacity: stamp, transform: `rotate(-7deg) scale(${0.72 + 0.28 * stamp})` });
+    const comment = ease((u - 2.15) / 0.42);
+    set($('#hookComment'), { opacity: comment, transform: `translateY(${(1 - comment) * 16}px)` });
+    const pulse = 1 + Math.sin(Math.max(0, u - 2.15) * 3.2) * 0.018 * comment;
+    $('#hookComment').style.scale = pulse;
+  },
 };
 
 window.renderFrame = renderFrame;
-window.DURATION = 66.988;
+window.DURATION = 75.0;
 renderFrame(0);
 window.READY = true;
