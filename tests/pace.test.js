@@ -100,6 +100,68 @@ test('zero stamina alone does not kill ordinary roles, while hidden role ignores
   hidden.checkDeath();
   assert.equal(hidden.over, false);
 });
+test('hidden role ignores every movement penalty while preserving fast pace and hungry crawling', () => {
+  const changes = [
+    g => { g.st.body.stamina = 0; },
+    g => { Object.assign(g.st.body, { sprain: 1, fracture: 1, frostbite: 100, core: 20, health: 0, food: 0, water: 0, stress: 100, altSick: 100, snowblind: 100 }); },
+    g => { g.here = () => ({ type: 'stone', ice: true }); g.st.inv = {}; },
+    g => { g.night = () => true; g.st.lampOn = false; g.st.bat.headlamp = 0; },
+    g => { g.st.inv = { camera: 100 }; },
+    g => { g.st.companions = ['mou']; },
+    g => { g.st.flags.snowDepth = 1.2; },
+    g => { g.st.story.effects.runnerPaceUntil = g.st.time + 300; },
+    g => { g.grade = 1.5; },
+  ];
+  for (const change of changes) {
+    const g = fixture('qu'), baseline = g.speedFactor();
+    change(g);
+    assert.equal(g.speedFactor(), baseline);
+  }
+  const g = fixture('qu'), baseline = g.speedFactor();
+  for (const change of changes) change(g);
+  assert.equal(g.speedFactor(), baseline, 'stacked penalties cannot compound');
+  g.st.pace = 'fast';
+  assert.equal(g.speedFactor(), baseline * g.travelPace().speed);
+  assert.ok(g.speedFactor() > baseline);
+  g.st.body.collapsed = true; g.st.body.food = 10;
+  const crawling = g.speedFactor();
+  assert.equal(crawling, baseline * g.role.crawlSpeed);
+  g.st.body.food = 0;
+  assert.equal(g.speedFactor(), baseline * g.role.hungryCrawlSpeed);
+  assert.ok(g.speedFactor() > crawling);
+  g.st = JSON.parse(JSON.stringify(g.st));
+  assert.equal(g.speedFactor(), baseline * g.role.hungryCrawlSpeed, 'saved debuffs do not slow a resumed run');
+});
+
+test('actual movement retains hidden-role auto-walk through exhaustion and ignores opposing gusts', () => {
+  for (const role of ['qu', 'student']) {
+    const g = fixture(role);
+    g.pos = { x: 0, y: 0, z: 0 }; g.st.pos = { x: 0, z: 0 };
+    g.input = { move: () => ({ mag: 0 }), crouchHeld: () => false };
+    g.cam = { yaw: 0 }; g.player = { rotation: { y: 0 } };
+    g.world = { height: () => 0 }; g.updateProgress = () => {};
+    g.autoTarget = () => ({ x: 0, z: -20 });
+    g.autoWalk = true; g.falling = false;
+    g.gust = { push: 1, warn: 1, timer: 0 }; g.push = { x: 0, y: 0 };
+    g.st.body.stamina = 0;
+    if (role === 'qu') {
+      g.push.y = 100;
+      Object.assign(g.st.body, { food: 0, core: 20, health: 0, fracture: 1, frostbite: 100 });
+      g.grade = 1.5; g.night = () => true;
+    }
+    g.updateMovement(0.1);
+    assert.equal(g.st.body.collapsed, true);
+    assert.equal(g.autoWalk, role === 'qu', 'ordinary exhaustion still stops auto-walk');
+    if (role === 'qu') {
+      const expected = 6.4 * g.role.mods.speed * g.role.hungryCrawlSpeed * 0.1;
+      assert.ok(Math.abs(g.pos.z + expected) < 1e-9);
+      assert.equal(g.moving, true);
+      g.updateGust(0.1);
+      assert.equal(g.gust.push, 0); assert.equal(g.gust.warn, 0);
+    } else assert.equal(g.pos.z, 0);
+  }
+});
+
 test('death in the current simulation step is not overwritten by an arriving rescue', () => {
   const g = fixture();
   g.st.body.health = 0.001; g.st.body.core = 30;

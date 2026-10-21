@@ -323,14 +323,14 @@ export class Game {
 
   speedFactor() {
     const st = this.st, b = st.body;
+    const crawling = this.isCrawling();
+    const crawlSpeed = crawling ? (this.role.hungryCrawlSpeed && b.food <= 5 ? this.role.hungryCrawlSpeed : (this.role.crawlSpeed ?? 0.26)) : 1;
+    if (this.role.unimpededMovement) return this.role.mods.speed * crawlSpeed * this.travelPace().speed;
     const info = this.here();
     let f = this.role.mods.speed * (TERRAIN[info.type]?.speed ?? 0.8);
     if (info.ice && !has(st, 'crampons') && !has(st, 'microspikes')) f *= 0.65;
     if (b.stamina < 25) f *= 0.5 + (b.stamina / 25) * 0.5;
-    if (this.isCrawling()) {
-      const crawlSpeed = this.role.hungryCrawlSpeed && b.food <= 5 ? this.role.hungryCrawlSpeed : (this.role.crawlSpeed ?? 0.26);
-      f *= crawlSpeed;
-    }
+    if (crawling) f *= crawlSpeed;
     if (b.sprain > 0) f *= 0.6;
     if (b.fracture > 0) f *= b.fracture >= 1 ? 0.4 : 0.6;
     if (b.core < 35) f *= 0.85;
@@ -377,8 +377,8 @@ export class Game {
     const st = this.st, b = st.body;
     if (b.stamina <= 0 && !b.collapsed) {
       b.collapsed = true;
-      this.autoWalk = false;
-      this.toast('体力耗尽了。你还能缓慢爬行；休息或吃东西恢复体力。', 'danger', 5000);
+      if (!this.role.unimpededMovement) this.autoWalk = false;
+      this.toast(this.role.unimpededMovement ? '体力耗尽，转为爬行；移动速度不受影响。' : '体力耗尽了。你还能缓慢爬行；休息或吃东西恢复体力。', 'danger', 5000);
     }
     const inp = this.input.move();
     this.crouch = this.input.crouchHeld();
@@ -410,14 +410,15 @@ export class Game {
     }
     if (this.crouch) { mx = 0; mz = 0; }
     let pushX = 0, pushZ = 0;
-    if (this.gust.push > 0) { pushX = this.push.x; pushZ = this.push.y; }
+    const gustPush = this.gust.push > 0 && !this.role.unimpededMovement;
+    if (gustPush) { pushX = this.push.x; pushZ = this.push.y; }
 
     const speed = BASE_SPEED * this.speedFactor();
     const dx = mx * speed * dt + pushX * dt;
     const dz = mz * speed * dt + pushZ * dt;
     if (Math.abs(dx) + Math.abs(dz) > 1e-4) {
       const g0 = this.world.height(this.pos.x, this.pos.z);
-      const moved = this._tryMove(dx, dz, g0, dt, this.gust.push > 0);
+      const moved = this._tryMove(dx, dz, g0, dt, gustPush);
       if (moved && (mx || mz)) {
         this.moving = true;
         const g1 = this.world.height(this.pos.x, this.pos.z);
@@ -523,6 +524,12 @@ export class Game {
   // ———————————————————— 阵风 ————————————————————
   updateGust(dt) {
     const st = this.st;
+    if (this.role.unimpededMovement) {
+      this.gust.timer = Math.max(this.gust.timer, 4);
+      this.gust.warn = 0;
+      this.gust.push = 0;
+      return;
+    }
     const wx = this.wx();
     const eff = wx.wind * wx.gust * this.exposure();
     if (eff < 12.5 || (st.camp && st.camp.inside) || this.falling) {
