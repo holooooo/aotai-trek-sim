@@ -258,7 +258,7 @@ export class UI {
           b.classList.toggle('primary', selected); b.classList.toggle('ghost', !selected);
           b.setAttribute('aria-pressed', String(selected));
         });
-        page.querySelector('[data-difficulty-note]').textContent = difficulty === 'easy' ? '轻松：双倍健康，仍会受伤、失温和消耗补给。' : difficulty === 'hardcore' ? '真实：散热、消耗与伤害更严苛；仍是游戏化模型，不是现实预测。' : '标准：原有生理与伤害数值。';
+        page.querySelector('[data-difficulty-note]').textContent = difficulty === 'spring' ? '春游：气温与体感保持在0℃以上，健康、消耗与伤害更宽松。' : difficulty === 'easy' ? '轻松：双倍健康，仍会受伤、失温和消耗补给。' : difficulty === 'hardcore' ? '真实：散热、消耗与伤害更严苛；仍是游戏化模型，不是现实预测。' : '标准：原有生理与伤害数值。';
       },
       go: () => sel && this.showShop(createState(sel, difficulty)),
     });

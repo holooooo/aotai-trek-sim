@@ -7,7 +7,7 @@ const food = (g) => Object.keys(g.st.inv).find(id => ITEMS[id]?.kind === 'food' 
 const companion = (g) => g.st.companions.find(id => g.st.npcs[id]?.following && !g.st.npcs[id].dead && g.st.npcs[id].cond > 20);
 const outside = (g) => !g.st.camp?.inside;
 const event = (id, stressMin, options) => ({
-  id, stressMin, once: false, cooldown: 720, allowCamp: true, ambient: false, priority: 62, weight: 1,
+  id, stressMin, pressure: true, once: false, cooldown: 720, allowCamp: true, ambient: false, priority: 62, weight: 1,
   ...options,
   cond: (g) => g.st.body.stress >= stressMin && (!options.cond || options.cond(g)),
 });
@@ -127,6 +127,71 @@ export const STRESS_EVENTS = [
       else if (c === 'wait') { if (!await g.eventPause(10)) return; g.changeBody('stress', -2); }
       else return;
       mark(g, 'restless_shelter', c);
+    },
+  }),
+  event('memory_echo', 68, {
+    priority: 67, cooldown: 1080, optionIds: ['name', 'write', 'bury'],
+    async run(g) {
+      const c = await ask(g, 'memory_echo', '回忆突然变得很近', ['风声把你带回了出发前的某个下午。那时你还在室内，鞋是干的，热水也不会很快变凉。', '记忆没有替你挡风，只是让眼前这段路多了一层重量。'], [
+        choice('name', '把最想起的人和事说出名字', '停6分钟，把注意力重新放回当下'),
+        choice('write', '用手机记下这段回忆', '花5分钟和1格手机电量，留下本地记录', g.st.bat.phone < 1),
+        choice('bury', '先把回忆压回去，继续赶路', '不消耗设备，但会带着这股心事继续走'),
+      ]);
+      if (!c) return;
+      if (c === 'name') { if (!await g.eventPause(6)) return; g.changeBody('stress', -5); }
+      else if (c === 'write') { if (!g.spendBattery('phone', 1) || !await g.eventPause(5)) return; g.changeBody('stress', -3); }
+      else if (c === 'bury') { g.changeBody('stamina', -3); g.changeBody('stress', 4); }
+      else return;
+      mark(g, 'memory_echo', c);
+    },
+  }),
+  event('regret_turn', 74, {
+    priority: 67, cooldown: 1200, optionIds: ['admit', 'repair', 'push'],
+    async run(g) {
+      const c = await ask(g, 'regret_turn', '后悔有了具体的形状', ['你开始反复想：如果早一点掉头、少带一点东西、听一次劝，事情会不会不一样。', '这些假设没有改变脚下的坡，却把每一步都变得更重。'], [
+        choice('admit', '承认当时的判断确实有问题', '停8分钟，把后悔和眼前能做的事分开'),
+        choice('repair', '挑一件现在还能修正的小事', '花10分钟整理装备，消耗一点体力但恢复秩序感'),
+        choice('push', '不再回头想，硬着头皮继续', '不花时间，但压力和体力消耗都会增加'),
+      ]);
+      if (!c) return;
+      if (c === 'admit') { if (!await g.eventPause(8)) return; g.changeBody('stress', -6); }
+      else if (c === 'repair') { if (!await g.eventPause(10)) return; g.changeBody('stamina', -4); g.changeBody('stress', -2); }
+      else if (c === 'push') { g.changeBody('stamina', -6); g.changeBody('stress', 6); }
+      else return;
+      mark(g, 'regret_turn', c);
+    },
+  }),
+  event('life_review', 80, {
+    priority: 82, cooldown: 1440, optionIds: ['stay', 'promise', 'rush'],
+    cond: (g) => g.st.body.core < 34 || g.st.body.health < 25,
+    async run(g) {
+      const c = await ask(g, 'life_review', '走马灯一样闪过的片段', ['一段段画面不按顺序出现：厨房的灯、没回完的消息、出发前随手关上的门。', '它们像走马灯一样掠过，你很难判断这是疲惫、寒冷，还是自己不愿停下来的念头。'], [
+        choice('stay', '停下来数十次呼吸，再看眼前', '停7分钟，先把注意力从画面拉回身体'),
+        choice('promise', '给一个还在等你的人留一句话', '花5分钟和2格手机电量，只写本机草稿，不会自动发送', g.st.bat.phone < 2),
+        choice('rush', '不看那些画面，尽快走过这一段', '消耗8点体力，压力会短暂变得更尖锐'),
+      ]);
+      if (!c) return;
+      if (c === 'stay') { if (!await g.eventPause(7)) return; g.changeBody('stress', -7); }
+      else if (c === 'promise') { if (!g.spendBattery('phone', 2) || !await g.eventPause(5)) return; g.changeBody('stress', -4); }
+      else if (c === 'rush') { g.changeBody('stamina', -8); g.changeBody('stress', 8); }
+      else return;
+      mark(g, 'life_review', c);
+    },
+  }),
+  event('homeward_voice', 72, {
+    priority: 67, cooldown: 1260, optionIds: ['answer', 'listen', 'deny'],
+    async run(g) {
+      const c = await ask(g, 'homeward_voice', '像从身后传来的声音', ['你听见有人叫你的名字。声音很像家里的人，可回头只有风和雪。', '你知道山里不该有这个声音，身体却先于理智做出了反应。'], [
+        choice('answer', '应一声，确认自己还在这里', '停4分钟，用声音把注意力拉回现实'),
+        choice('listen', '闭嘴听清楚周围的风向', '停6分钟，不使用设备，但会让恐惧继续发酵'),
+        choice('deny', '不回应，压低身体继续走', '消耗4点体力，把注意力压到脚下'),
+      ]);
+      if (!c) return;
+      if (c === 'answer') { if (!await g.eventPause(4)) return; g.changeBody('stress', -3); }
+      else if (c === 'listen') { if (!await g.eventPause(6)) return; g.changeBody('stress', 2); }
+      else if (c === 'deny') { g.changeBody('stamina', -4); g.changeBody('stress', 5); }
+      else return;
+      mark(g, 'homeward_voice', c);
     },
   }),
 ];

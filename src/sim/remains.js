@@ -23,7 +23,7 @@ export function validRemains(r) {
   return !!r && typeof r.id === 'string' && ID.test(r.id) && r.world === REMAINS_WORLD && PATHS.has(r.path)
     && numeric(r.x, -100000, 100000) && numeric(r.z, -100000, 100000)
     && ROLES.some(role => role.id === r.role)
-    && ['easy', 'normal', 'hardcore'].includes(r.difficulty) && Object.hasOwn(CAUSE_NAMES, r.cause)
+    && ['spring', 'easy', 'normal', 'hardcore'].includes(r.difficulty) && Object.hasOwn(CAUSE_NAMES, r.cause)
     && numeric(r.gameMinute, 0, 1e6) && numeric(r.core, 0, 45)
     && ['health', 'food', 'water', 'stress'].every(k => numeric(r[k], 0, 100))
     && numeric(r.altitude, -1000, 10000) && numeric(r.createdAt, 0, 4102444800000);

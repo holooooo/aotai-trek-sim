@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DIFFICULTIES, difficultyProfile, maxHealth, ensureDifficulty, setDifficulty } from '../src/sim/difficulty.js';
 import { createState } from '../src/sim/state.js';
-import { stepBody } from '../src/sim/body.js';
+import { stepBody, computeEnv } from '../src/sim/body.js';
+import { airTemp, WEATHER } from '../src/sim/weather.js';
+import { Game } from '../src/sim/game.js';
 import { roleById } from '../src/data/roles.js';
 
 const role = roleById('nurse');
@@ -19,13 +21,41 @@ const state = (difficulty) => {
 };
 
 // 真正执行 stepBody，避免仅验证配置但遗漏内部的 100 上限。
-test('new games default to easy with double health; explicit normal and hardcore remain 100', () => {
+test('new games default to easy with double health; spring, normal and hardcore retain explicit profiles', () => {
+  const spring = createState('nurse', 'spring');
   const easy = createState('nurse');
   assert.equal(easy.difficulty, 'easy');
   assert.equal(easy.body.health, 200);
+  assert.equal(spring.body.health, 240);
   assert.equal(createState('nurse', 'normal').body.health, 100);
   assert.equal(createState('nurse', 'hardcore').body.health, 100);
-  assert.deepEqual(DIFFICULTIES.map((profile) => profile.id), ['easy', 'normal', 'hardcore']);
+  assert.deepEqual(DIFFICULTIES.map((profile) => profile.id), ['spring', 'easy', 'normal', 'hardcore']);
+});
+
+test('spring air, wind chill and tent temperatures stay above freezing across all weather and elevations', () => {
+  const st = JSON.parse(JSON.stringify(state('spring')));
+  assert.equal(ensureDifficulty(st).id, 'spring');
+  const g = Object.create(Game.prototype); g.st = st;
+  const floor = difficultyProfile(st).minTemp;
+  let coldBaseline = false;
+  for (const [id, weather] of Object.entries(WEATHER)) {
+    const wx = { ...weather, gust: 1.5 };
+    for (const alt of [1500, 2500, 3767, 4200]) for (const hour of [2, 6, 14, 22]) for (const day of [0, 2, 5]) {
+      const ctx = { alt, hour, day, wx, exposure: 1, inTent: false, camp: null };
+      g.alt = () => alt; g.hour = () => hour; g.day = () => day; g.wx = () => wx;
+      const env = computeEnv(st, ctx), label = `${id}:${alt}:${hour}:${day}`;
+      assert.ok(env.T >= floor && env.wct >= floor && env.Teff >= floor, label);
+      assert.equal(g.airT(), env.T, `HUD and simulation agree: ${label}`);
+      const baseline = computeEnv(state('easy'), ctx);
+      assert.equal(baseline.T, airTemp(alt, hour, wx, day), 'easy retains its winter temperature');
+      coldBaseline ||= baseline.T < 0;
+      ctx.inTent = true;
+      ctx.camp = { tent: 'tent_light', exposure: 1, orient: 1, health: 1, doorIntoWind: true };
+      const tent = computeEnv(st, ctx);
+      assert.ok(tent.Teff >= floor && tent.tentInfo.Tin >= floor, `tent: ${label}`);
+    }
+  }
+  assert.ok(floor > 0 && coldBaseline);
 });
 
 test('read-only difficulty lookup falls back to normal for old or invalid states', () => {

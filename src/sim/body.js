@@ -4,7 +4,7 @@ import { ITEMS } from '../data/items.js';
 import { wornItems, tentItem, bagItem, padItem, has } from './state.js';
 import { airTemp, windChill } from './weather.js';
 import { clamp } from '../world/noise.js';
-import { ensureDifficulty, maxHealth } from './difficulty.js';
+import { ensureDifficulty, difficultyProfile, maxHealth } from './difficulty.js';
 import { garmentWetness, stepGarmentMoisture } from './clothes.js';
 import { nutritionModifiers, stepFoodEffects } from './nutrition.js';
 import { stepStress } from './stress.js';
@@ -32,10 +32,11 @@ export function clothing(st) {
 
 // ctx: { alt, exposure, hour, day, wx, inTent, camp }
 export function computeEnv(st, ctx) {
-  const T = airTemp(ctx.alt, ctx.hour, ctx.wx, ctx.day);
+  const minTemp = difficultyProfile(st).minTemp;
+  const T = airTemp(ctx.alt, ctx.hour, ctx.wx, ctx.day, minTemp);
   const wind = ctx.wx.wind * ctx.wx.gust * ctx.exposure;
   const cl = clothing(st);
-  const wct = windChill(T, wind);
+  const wct = Math.max(minTemp, windChill(T, wind));
   let Teff = T + (wct - T) * (1 - cl.windproof);
   let tentInfo = null;
   if (ctx.inTent && ctx.camp) {
@@ -44,6 +45,7 @@ export function computeEnv(st, ctx) {
     const health = clamp(ctx.camp.health / 100, 0, 1);
     let Tin = T + tent.warmth * (0.4 + 0.6 * health) - Math.max(0, tentWind - 4) * 0.12;
     if (ctx.camp.doorIntoWind) Tin -= 3;
+    Tin = Math.max(minTemp, Tin);
     Teff = Tin;
     tentInfo = { Tin, tentWind, rating: tent.windRating };
   }

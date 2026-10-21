@@ -6,14 +6,16 @@ import { Game } from '../src/sim/game.js';
 import { createState } from '../src/sim/state.js';
 import { roleById } from '../src/data/roles.js';
 import { ensurePsychology, stepStress } from '../src/sim/stress.js';
-import { chooseEvent, completeEvent, ensureEventPacing } from '../src/sim/event-director.js';
+import { chooseEvent, completeEvent, ensureEventPacing, advanceEventPacing, URGENT_GAP } from '../src/sim/event-director.js';
+import { EVENTS } from '../src/data/events.js';
 import { ensureEncounters, eventEncounterAllowed } from '../src/sim/encounters.js';
 
 function fixture(def) {
   const g = Object.create(Game.prototype);
   g.st = createState('nurse'); g.role = roleById('nurse'); g.over = false;
   Object.assign(g.st, { time: 1300, s: 1600, maxS: 1600, thermos: { l: 1, temp: 75 }, companions: ['mou'] });
-  Object.assign(g.st.body, { stress: 78, core: 37, health: 100, stamina: 55, food: 30, water: 30, sprain: 1, fracture: 0.5, frostbite: 15 });
+  Object.assign(g.st.body, { stress: Math.max(78, def?.stressMin ?? 0), core: 37, health: 100, stamina: 55, food: 30, water: 30, sprain: 1, fracture: 0.5, frostbite: 15 });
+  if (def?.id === 'life_review') Object.assign(g.st.body, { core: 33.7, health: 20 });
   ensurePsychology(g.st); g.st.psychology.injuries = { fracture: 1, sprain: 1, frostbite: 1 };
   g.st.npcs = { mou: { following: true, met: true, dead: false, cond: 80, fate: 'together' } };
   g.st.inv = { bar: 2, biscuit: 2, chocolate: 2, gps: 1, headlamp: 1, tent_alpine: 1 };
@@ -37,13 +39,14 @@ function fixture(def) {
 const economics = (g) => JSON.stringify({ time: g.st.time, body: g.st.body, inv: g.st.inv, bat: g.st.bat, thermos: g.st.thermos });
 const injury = (g) => ({ sprain: g.st.body.sprain, fracture: g.st.body.fracture, frostbite: g.st.body.frostbite, health: g.st.body.health });
 
-test('at least six pressure scenes declare thresholds, choices and repeat cooldowns without random exclusion', () => {
-  assert.ok(STRESS_EVENTS.length >= 6);
+test('at least ten pressure scenes declare thresholds, choices and repeat cooldowns without random exclusion', () => {
+  assert.ok(STRESS_EVENTS.length >= 10);
   assert.equal(new Set(STRESS_EVENTS.map(ev => ev.id)).size, STRESS_EVENTS.length);
   for (const def of STRESS_EVENTS) {
     assert.ok(def.stressMin >= 50 && def.stressMin <= 85, def.id);
     assert.equal(def.once, false); assert.ok(def.cooldown >= 720, def.id);
-    assert.ok(def.priority < 80, 'recovery dialogue cannot displace urgent hazards');
+    if (def.id === 'life_review') assert.ok(def.priority >= 80 && def.priority < 100, 'life review is urgent but yields to hypothermia hazards');
+    else assert.ok(def.priority < 80, 'recovery dialogue cannot displace urgent hazards');
     assert.equal(def.ambient, false);
     assert.ok(def.optionIds.length >= 2 && new Set(def.optionIds).size === def.optionIds.length, def.id);
     const g = fixture(def);
@@ -95,6 +98,7 @@ test('missing batteries, food, water or companion disable the relevant choice an
   for (const [id, option] of [
     ['stress_checklist', 'read'], ['stress_recheck', 'gps'], ['stress_recheck', 'notes'],
     ['stress_ration', 'eat'], ['stress_ration', 'water'], ['stress_company', 'talk'], ['stress_company', 'voice'],
+    ['memory_echo', 'write'], ['life_review', 'promise'],
   ]) {
     const def = STRESS_EVENTS.find(ev => ev.id === id), g = fixture(def);
     g.st.inv = {}; g.st.bat.phone = g.st.bat.gps = 0; g.st.thermos.l = 0; g.st.companions = [];
@@ -156,7 +160,11 @@ test('GPS comparison costs battery but cannot clear lost state or move the playe
 });
 
 test('a death/time interruption prevents post-pause reassurance; cancelled scenes do not alter resources', async () => {
-  for (const [id, option] of [['stress_checklist', 'sort'], ['pain_focus', 'pause'], ['stress_recheck', 'gps'], ['stress_company', 'quiet'], ['restless_shelter', 'sort']]) {
+  for (const [id, option] of [
+    ['stress_checklist', 'sort'], ['pain_focus', 'pause'], ['stress_recheck', 'gps'], ['stress_company', 'quiet'], ['restless_shelter', 'sort'],
+    ['memory_echo', 'name'], ['memory_echo', 'write'], ['regret_turn', 'admit'], ['regret_turn', 'repair'],
+    ['life_review', 'stay'], ['life_review', 'promise'], ['homeward_voice', 'answer'], ['homeward_voice', 'listen'],
+  ]) {
     const def = STRESS_EVENTS.find(ev => ev.id === id), g = fixture(def), before = g.st.body.stress;
     g.dialog = async () => option; g.eventPause = async () => { g.over = true; return false; };
     await def.run(g); assert.equal(g.st.body.stress, before, `${id}:${option}`);
@@ -165,6 +173,59 @@ test('a death/time interruption prevents post-pause reassurance; cancelled scene
     const g = fixture(def), before = economics(g);
     g.dialog = async () => null; await def.run(g); assert.equal(economics(g), before, def.id);
   }
+});
+
+test('new noncritical pressure scenes all remain selectable from the shared high-stress pool', () => {
+  const g = fixture(); g.st.body.stress = 100;
+  const seen = new Set();
+  for (let i = 0; i < 100; i++) {
+    const picked = chooseEvent(STRESS_EVENTS, g, () => i / 100);
+    if (picked) seen.add(picked.id);
+  }
+  for (const id of ['memory_echo', 'regret_turn', 'homeward_voice']) assert.ok(seen.has(id), id);
+});
+
+test('life review requires high stress and critical health or core, yields to hazards, and survives JSON reload', () => {
+  const def = STRESS_EVENTS.find(ev => ev.id === 'life_review'), g = fixture(def);
+  Object.assign(g.st.body, { stress: 80, core: 34, health: 25 });
+  assert.equal(def.cond(g), false);
+  g.st.body.core = 33.9; assert.equal(def.cond(g), true);
+  g.st.body.core = 37; g.st.body.health = 24; assert.equal(def.cond(g), true);
+  g.st.body.stress = 79.9; assert.equal(def.cond(g), false);
+  g.st.body.stress = 80;
+  assert.equal(chooseEvent(STRESS_EVENTS, g), def, 'critical state does not suppress life review');
+  const hazard = { id: 'hazard', priority: 100, allowCamp: true, cond: () => true };
+  assert.equal(chooseEvent([...STRESS_EVENTS, hazard], g), hazard);
+  completeEvent(g.st, def);
+  g.st = JSON.parse(JSON.stringify(g.st));
+  g.st.story.pacing.elapsed += 500;
+  g.st.time += def.cooldown - 1;
+  assert.equal(chooseEvent([def], g), null, 'reload retains the independent cooldown');
+  g.st.time++;
+  assert.equal(chooseEvent([def], g), def);
+  g.st.story.pendingEvent = def.id;
+  g.st.body.stress = 0;
+  assert.equal(chooseEvent(STRESS_EVENTS, g), def, 'an unfinished scene resumes without rerolling');
+});
+
+test('repeated urgent hallucinations leave a bounded wait for pressure stories and keep a quiet gap', () => {
+  const g = fixture(); g.st.seed = 1; g.st.body.stress = 100;
+  g.night = () => true; g.foggy = () => true; g.roll = () => true;
+  const hallucination = EVENTS.find(ev => ev.id === 'hallucination');
+  const pacing = ensureEventPacing(g.st);
+  pacing.elapsed = 0; pacing.lastDialogAt = null; pacing.nextAmbientAt = pacing.nextPressureAt = 105;
+  let hallucinations = 0, pressure = 0, lastDialog = -Infinity;
+  for (let i = 0; i < 280 / 1.4; i++) {
+    advanceEventPacing(g.st, 1.4, true); g.st.time += 1.4 * 8;
+    const ev = chooseEvent([hallucination, ...STRESS_EVENTS], g, () => 0.99);
+    if (!ev) continue;
+    assert.ok(pacing.elapsed - lastDialog >= URGENT_GAP, 'no back-to-back popups');
+    if (ev.id === 'hallucination') hallucinations++;
+    else pressure++;
+    lastDialog = pacing.elapsed; completeEvent(g.st, ev);
+  }
+  assert.ok(hallucinations >= 3, 'reproduces repeating urgent symptoms');
+  assert.ok(pressure >= 1, 'urgent symptoms cannot keep postponing pressure stories');
 });
 
 test('conditions are deterministic and inspect state without initializing or modifying it', () => {

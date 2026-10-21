@@ -22,6 +22,8 @@ export function ensureEventPacing(st) {
       lastDialogAt: null, dialogs: 0,
     };
   }
+  // Repeated urgent symptoms must not restart the pressure-story wait forever.
+  if (!Number.isFinite(p.nextPressureAt)) p.nextPressureAt = p.nextAmbientAt;
   return p;
 }
 
@@ -32,11 +34,13 @@ export function advanceEventPacing(st, dt, moving = false) {
   return p;
 }
 
-export function recordDialog(st) {
+export function recordDialog(st, { urgent = false } = {}) {
   const p = ensureEventPacing(st);
   p.lastDialogAt = p.elapsed;
   p.dialogs++;
-  p.nextAmbientAt = Math.max(p.nextAmbientAt, p.elapsed + DIALOG_GAP + jitter(st, p.dialogs) * 45);
+  const next = p.elapsed + DIALOG_GAP + jitter(st, p.dialogs) * 45;
+  p.nextAmbientAt = Math.max(p.nextAmbientAt, next);
+  if (!urgent) p.nextPressureAt = Math.max(p.nextPressureAt, next);
 }
 
 export function chooseEvent(events, g, random = Math.random) {
@@ -55,7 +59,9 @@ export function chooseEvent(events, g, random = Math.random) {
     } else if (isNotification(ev)) {
       if (!p.started || p.elapsed < 8) continue;
     } else {
-      if (!p.started || (st.stats?.walked || 0) < 12 || p.elapsed < p.nextAmbientAt) continue;
+      const nextAt = ev.pressure ? p.nextPressureAt : p.nextAmbientAt;
+      if (!p.started || (st.stats?.walked || 0) < 12 || p.elapsed < nextAt) continue;
+      if (ev.pressure && p.lastDialogAt != null && p.elapsed - p.lastDialogAt < URGENT_GAP) continue;
       if (story.lastAmbientAt != null && st.time - story.lastAmbientAt < AMBIENT_GAP) continue;
       if (st.body.core < 34 || st.body.health < 25) continue;
     }
@@ -73,6 +79,6 @@ export function chooseEvent(events, g, random = Math.random) {
 export function completeEvent(st, ev) {
   st.flags['ev_' + ev.id] = st.time;
   if (isAmbient(ev)) st.story.lastAmbientAt = st.time;
-  if (!isNotification(ev)) recordDialog(st);
+  if (!isNotification(ev)) recordDialog(st, { urgent: isUrgent(ev) });
   st.story.pendingEvent = null;
 }

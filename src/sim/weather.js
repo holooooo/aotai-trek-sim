@@ -117,13 +117,14 @@ export function beaufort(ms) {
 }
 
 // 气温（℃）：冬季1月，3500m 日均约 -13.5℃
-export function airTemp(alt, hour, wx, day) {
+export function airTemp(alt, hour, wx, day, minTemp = -Infinity) {
   const diurnal = 6 * Math.cos((2 * Math.PI * (hour - 14)) / 24);
   const lapse = (3500 - alt) * 0.0062;
   const night = hour < 7.5 || hour > 18 ? 1 : 0;
   const radiative = night * -3 * (1 - wx.overcast);
   const snap = day >= 1 && day <= 3 ? -2 : 0;
-  return -13.5 + diurnal + lapse + wx.temp + radiative + snap;
+  const raw = -13.5 + diurnal + lapse + wx.temp + radiative + snap;
+  return Math.max(Number.isFinite(minTemp) ? minTemp : -Infinity, raw);
 }
 
 export function windChill(T, ms) {

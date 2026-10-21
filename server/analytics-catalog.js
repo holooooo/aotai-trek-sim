@@ -1,10 +1,10 @@
 // Stable server-side identifiers only; never send dialogue or free text to D1.
 // Tests compare this catalogue with the actual frontend data and optionIds.
 export const ROLES = new Set(["student","veteran","blogger","runner","nurse","coder","cook","geographer","porter","photographer","qu"]);
-export const DIFFICULTIES = new Set(['easy', 'normal', 'hardcore']);
+export const DIFFICULTIES = new Set(['spring', 'easy', 'normal', 'hardcore']);
 export const ENDINGS = new Set(['sausage', 'sigma', 'retreat_wild', 'turnback', 'retreat', 'retreat_branch', 'rescued', 'cross', 'dayehai', 'dead']);
 export const CAUSES = new Set(['hypothermia', 'fall', 'dehydration', 'starvation', 'injury', 'exhaustion']);
-export const EVENT_IDS = new Set(["ridge_wind","navtower","plane","leigong","old_tent","blogger_shot","keepwarm_tip","sweat_tip","rest_cold_tip","water_frozen","hallucination","undress","takin","signal","ridge_shelter","hot_water_share","family_callback","rescue_update","loose_marker","hand_warmth","windproof_lash","false_trail","headlamp_contact","fuel_check","emergency_bivouac","shared_load","student_shortcut","veteran_confidence","blogger_honest_cut","runner_heat","nurse_triage","coder_overload","mutual_followup","family_followup","rescue_followup","reported_solo_probe","reported_weather_turn","reported_last_seen","pack_rattle","ice_flask","paper_route","dropped_ration","phone_draft","tent_neighbor_song","ridge_echo","strap_snag","stress_checklist","pain_focus","stress_recheck","stress_ration","stress_company","restless_shelter","exit_hetaoping_river","exit_qingfengxia_bearing","exit_dudumen_landmarks","exit_diaoyutai_signal"]);
+export const EVENT_IDS = new Set(["ridge_wind","navtower","plane","leigong","old_tent","blogger_shot","keepwarm_tip","sweat_tip","rest_cold_tip","water_frozen","hallucination","undress","takin","signal","ridge_shelter","hot_water_share","family_callback","rescue_update","loose_marker","hand_warmth","windproof_lash","false_trail","headlamp_contact","fuel_check","emergency_bivouac","shared_load","student_shortcut","veteran_confidence","blogger_honest_cut","runner_heat","nurse_triage","coder_overload","mutual_followup","family_followup","rescue_followup","reported_solo_probe","reported_weather_turn","reported_last_seen","pack_rattle","ice_flask","paper_route","dropped_ration","phone_draft","tent_neighbor_song","ridge_echo","strap_snag","stress_checklist","pain_focus","stress_recheck","stress_ration","stress_company","restless_shelter","memory_echo","regret_turn","life_review","homeward_voice","exit_hetaoping_river","exit_qingfengxia_bearing","exit_dudumen_landmarks","exit_diaoyutai_signal"]);
 export const NPC_IDS = new Set(["speedteam","straggler","mou","wu","boy","chen","yu","linqiao","heyan","luomo","qiaoan","suyan"]);
 export const SCENE_IDS = new Set(["gate","dayehai","camp_snow","tent_collapse","cold_wake","ending_report","ending_family"]);
 export const ITEM_CATEGORIES = Object.freeze({
@@ -152,6 +152,10 @@ export const QUESTION_OPTIONS = new Map([
   ["event:stress_ration", new Set(["eat","water","later"])],
   ["event:stress_company", new Set(["talk","voice","quiet"])],
   ["event:restless_shelter", new Set(["sleep","sort","wait"])],
+  ["event:memory_echo", new Set(["name","write","bury"])],
+  ["event:regret_turn", new Set(["admit","repair","push"])],
+  ["event:life_review", new Set(["stay","promise","rush"])],
+  ["event:homeward_voice", new Set(["answer","listen","deny"])],
   ["event:exit_hetaoping_river", new Set(["mark_position","check_phone","follow_drainage"])],
   ["event:exit_qingfengxia_bearing", new Set(["compare_bearing","reverse_segment","keep_heading"])],
   ["event:exit_dudumen_landmarks", new Set(["compare_landmarks","turn_back","continue_ridge"])],

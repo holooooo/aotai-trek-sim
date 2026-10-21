@@ -187,7 +187,7 @@ export class Game {
   foggy() { return this.wx().fog > 0.6; }
   here() { return columnInfo(Math.floor(this.pos.x), Math.floor(this.pos.z)); }
   alt() { return voxToAlt(this.world.height(this.pos.x, this.pos.z)); }
-  airT() { return airTemp(this.alt(), this.hour(), this.wx(), this.day()); }
+  airT() { return airTemp(this.alt(), this.hour(), this.wx(), this.day(), difficultyProfile(this.st).minTemp); }
   isWalking() { return this.moving; }
   isResting() { return !this.moving && this.restTimer > 8; }
   fate(id) { return this.st.npcs[id]?.fate ?? null; }
@@ -579,8 +579,9 @@ export class Game {
     const c = this.ctx();
     const env = computeEnv(st, c);
     if (env.tentInfo && st.story.effects.tentLeak) {
-      env.Teff -= 2;
-      env.tentInfo.Tin -= 2;
+      const minTemp = difficultyProfile(st).minTemp;
+      env.Teff = Math.max(minTemp, env.Teff - 2);
+      env.tentInfo.Tin = Math.max(minTemp, env.tentInfo.Tin - 2);
       env.precip = c.wx.precip * 0.15;
     }
     this.env = env;

@@ -1,6 +1,8 @@
 // 难度是游戏平衡，不是现实风险或医学模型。轻松模式仅增加健康容错，不改变失温死亡阈值。
-const BASE = { maxHealth: 100, heatLoss: 1, staminaDrain: 1, foodDrain: 1, waterDrain: 1, damage: 1 };
+const BASE = { maxHealth: 100, heatLoss: 1, staminaDrain: 1, foodDrain: 1, waterDrain: 1, damage: 1, minTemp: -Infinity };
 export const DIFFICULTIES = Object.freeze([
+  Object.freeze({ ...BASE, id: 'spring', name: '春游', maxHealth: 240, heatLoss: 0.72, staminaDrain: 0.82, foodDrain: 0.82, waterDrain: 0.82, damage: 0.7, minTemp: 0.5,
+    description: '春游模式，气温与体感保持在0℃以上；健康、消耗与伤害更宽松，适合先熟悉路线。' }),
   Object.freeze({ ...BASE, id: 'easy', name: '轻松', maxHealth: 200,
     description: '健康上限翻倍，其他生理规则与标准相同；仍可能失温、滑坠和遇难。' }),
   Object.freeze({ ...BASE, id: 'normal', name: '标准',
