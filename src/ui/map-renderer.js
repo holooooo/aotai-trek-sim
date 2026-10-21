@@ -2,6 +2,7 @@
 // 只返回字符串，不触碰 DOM，供 story-ui 通过 innerHTML 挂载。
 import { mainPath, branches, columnInfo } from '../world/terrain.js';
 import { WAYPOINTS, voxToAlt } from '../data/route.js';
+import { makeNoise2D, fbm } from '../world/noise.js';
 
 const DEFAULTS = { mode: 'satellite', scope: 'nearby', width: 720, height: 540 };
 const GRID = { cols: 34, rows: 24 };
@@ -10,11 +11,11 @@ const terrainCache = new Map();
 
 const MAP_LEGENDS = {
   satellite: [
-    { label: '森林', color: '#35634a' },
-    { label: '草甸', color: '#7e9b65' },
-    { label: '石海', color: '#8f8d86' },
-    { label: '积雪/冰面', color: '#d9e5e4' },
-    { label: '路线', color: '#e85d3f' },
+    { label: '森林', color: '#2b4a2c' },
+    { label: '草甸', color: '#8b9a58' },
+    { label: '石海', color: '#8a867c' },
+    { label: '积雪/冰面', color: '#e6eded' },
+    { label: '路线', color: '#ff7a45' },
   ],
   elevation: [
     { label: '低地', color: '#4e8056' },
@@ -134,12 +135,14 @@ function fitBounds(bounds, width, height) {
 function terrainKey(bounds, width, height, mode, scope) {
   return [mode, scope, width, height, ...['minX', 'maxX', 'minZ', 'maxZ'].map((key) => Math.round(bounds[key] / 8))].join(':');
 }
-function patternDefs() {
+function satelliteDefs(width, height) {
+  const soften = n1(Math.max(width / SAT.cols, height / SAT.rows) * 0.34);
   return [
-    '<pattern id="map-forest" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M3 13l3-6 3 6zM12 16l3-7 3 7z" fill="#b2cf98" opacity=".22"/><circle cx="4" cy="3" r="1" fill="#d4e4ad" opacity=".24"/></pattern>',
-    '<pattern id="map-meadow" width="16" height="16" patternUnits="userSpaceOnUse"><path d="M3 12l2-5m1 5l1-4m5 5l2-6m1 6l1-3" stroke="#dce4a8" stroke-width="1" opacity=".3"/></pattern>',
-    '<pattern id="map-stone" width="22" height="18" patternUnits="userSpaceOnUse"><path d="M2 12l5-5 5 3-3 5zM15 6l4-3 3 5-4 3z" fill="#f1eee5" opacity=".18"/><path d="M2 13l6-2" stroke="#5d5a58" opacity=".22"/></pattern>',
-    '<pattern id="map-snow" width="20" height="18" patternUnits="userSpaceOnUse"><path d="M0 13l8-3 12 2M4 4l8 3 8-2" fill="none" stroke="#fff" stroke-width="1.2" opacity=".42"/></pattern>',
+    `<filter id="map-sat-soften" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${soften}"/></filter>`,
+    '<filter id="map-sat-grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" seed="11" result="n"/><feColorMatrix type="matrix" values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  .9 .9 .9 0 -.8"/></filter>',
+    '<filter id="map-sat-canopy" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency=".2" numOctaves="4" seed="5"/><feColorMatrix type="matrix" values="2.4 0 0 0 -.7  2.4 0 0 0 -.7  2.4 0 0 0 -.7  0 0 0 0 1"/></filter>',
+    '<radialGradient id="map-sat-vignette" cx="50%" cy="50%" r="75%"><stop offset="55%" stop-color="#0b1410" stop-opacity="0"/><stop offset="100%" stop-color="#0b1410" stop-opacity=".48"/></radialGradient>',
+    '<linearGradient id="map-sat-haze" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfd9e2" stop-opacity=".1"/><stop offset=".45" stop-color="#cfd9e2" stop-opacity="0"/></linearGradient>',
   ].join('');
 }
 function mapTransform(bounds, width, height) {
@@ -150,10 +153,144 @@ function mapTransform(bounds, width, height) {
     y: (worldZ) => height - (worldZ - bounds.minZ) * sy,
   };
 }
+
+const SAT = { cols: 104, rows: 76, margin: 3 };
+const SAT_BASE = {
+  forest: [38, 64, 40],
+  village: [124, 118, 92],
+  meadow: [128, 148, 82],
+  plateau: [152, 142, 98],
+  ridge: [138, 133, 122],
+  knife: [118, 114, 108],
+  stone: [136, 132, 122],
+  snow: [232, 238, 238],
+};
+const SAT_NOISE = { macro: makeNoise2D(21), meso: makeNoise2D(53), fine: makeNoise2D(87), warpX: makeNoise2D(111), warpZ: makeNoise2D(137) };
+const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+function satelliteSurface(info) {
+  const surface = surfaceFor(info);
+  const key = Object.keys(SURFACE).find((k) => SURFACE[k] === surface) || 'meadow';
+  return { key, base: SAT_BASE[key] || SAT_BASE.meadow, ice: !!info.ice };
+}
+
+function satelliteTerrain(bounds, width, height) {
+  const spanX = bounds.maxX - bounds.minX, spanZ = bounds.maxZ - bounds.minZ;
+  const cols = SAT.cols + SAT.margin * 2, rows = SAT.rows + SAT.margin * 2;
+  const wx = spanX / SAT.cols, wz = spanZ / SAT.rows;
+  const cellW = width / SAT.cols, cellH = height / SAT.rows;
+  const cellSize = (wx + wz) / 2;
+  const warp = Math.max(18, cellSize * 4);
+  const grid = new Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = bounds.minX + (c - SAT.margin + 0.5) * wx;
+      const z = bounds.maxZ - (r - SAT.margin + 0.5) * wz;
+      const info = columnInfo(Math.floor(x), Math.floor(z));
+      // 地表类型在路线两侧是整齐的色带；用噪声扭曲取样位置，让林线/草甸边界变得自然。
+      const ux = x + fbm(SAT_NOISE.warpX, x * 0.011, z * 0.011, 3) * warp;
+      const uz = z + fbm(SAT_NOISE.warpZ, x * 0.011, z * 0.011, 3) * warp;
+      const surfaceInfo = columnInfo(Math.floor(ux), Math.floor(uz));
+      grid[r * cols + c] = { x, z, info, surfaceInfo };
+    }
+  }
+  const idx = (c, r) => clamp(r, 0, rows - 1) * cols + clamp(c, 0, cols - 1);
+  const hAt = (c, r) => grid[idx(c, r)].info.h;
+  const smoothH = (c, r) => (hAt(c, r) * 4 + hAt(c - 1, r) * 2 + hAt(c + 1, r) * 2 + hAt(c, r - 1) * 2 + hAt(c, r + 1) * 2 + hAt(c - 1, r - 1) + hAt(c + 1, r - 1) + hAt(c - 1, r + 1) + hAt(c + 1, r + 1)) / 16;
+
+  let color = new Array(cols * rows);
+  for (let k = 0; k < grid.length; k++) {
+    const { x, z, info, surfaceInfo } = grid[k];
+    const alt = voxToAlt(info.h);
+    const sf = satelliteSurface(surfaceInfo);
+    const macro = fbm(SAT_NOISE.macro, x * 0.0045, z * 0.0045, 3);
+    const meso = fbm(SAT_NOISE.meso, x * 0.02, z * 0.02, 3);
+    const fine = SAT_NOISE.fine(x * 0.11, z * 0.11);
+    let rgb = sf.base;
+    if (sf.key === 'forest') {
+      rgb = mix3(rgb, [24, 46, 30], clamp(0.5 + meso * 0.7, 0, 1) * 0.6);
+      rgb = mix3(rgb, [70, 94, 54], clamp(0.5 + macro * 0.9, 0, 1) * 0.4);
+      rgb = mix3(rgb, [20, 36, 26], clamp(0.5 + fine * 0.8, 0, 1) * 0.3);
+    } else if (sf.key === 'meadow' || sf.key === 'plateau' || sf.key === 'village') {
+      rgb = mix3(rgb, [98, 126, 68], clamp(0.5 + macro * 1.1, 0, 1) * 0.5);
+      rgb = mix3(rgb, [178, 166, 110], clamp(0.5 + meso * 0.9, 0, 1) * 0.45);
+      rgb = mix3(rgb, [96, 106, 64], clamp(0.5 + fine * 0.8, 0, 1) * 0.22);
+    } else if (sf.key === 'snow') {
+      rgb = mix3(rgb, [206, 220, 226], clamp(0.5 + meso * 0.9, 0, 1) * 0.5);
+    } else {
+      rgb = mix3(rgb, [108, 104, 98], clamp(0.5 + meso * 1.1, 0, 1) * 0.42);
+      rgb = mix3(rgb, [172, 165, 152], clamp(0.5 + fine * 1.1, 0, 1) * 0.3);
+    }
+    if (alt > 3000 && !['snow', 'stone', 'ridge', 'knife'].includes(sf.key)) {
+      rgb = mix3(rgb, [152, 144, 108], clamp((alt - 3000) / 600, 0, 0.6));
+    }
+    if (sf.ice) rgb = mix3([208, 226, 234], [170, 198, 214], clamp(0.5 + meso, 0, 1) * 0.6);
+    color[k] = rgb;
+  }
+  // 一次 3x3 高斯平滑，让不同地表之间出现渐变过渡
+  for (let pass = 0; pass < 1; pass++) {
+    const next = new Array(color.length);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let R = 0, G = 0, B = 0, W = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const w = (2 - Math.abs(dr)) * (2 - Math.abs(dc));
+            const v = color[idx(c + dc, r + dr)];
+            R += v[0] * w; G += v[1] * w; B += v[2] * w; W += w;
+          }
+        }
+        next[r * cols + c] = [R / W, G / W, B / W];
+      }
+    }
+    color = next;
+  }
+
+  const runs = new Map();
+  for (let r = 0; r < rows; r++) {
+    let runColor = null, runStart = 0;
+    const flush = (endCol) => {
+      if (runColor === null) return;
+      const x0 = (runStart - SAT.margin) * cellW, y0 = (r - SAT.margin) * cellH;
+      const w = (endCol - runStart) * cellW + 0.6;
+      let list = runs.get(runColor);
+      if (!list) runs.set(runColor, (list = []));
+      list.push(`M${n1(x0)},${n1(y0)}h${n1(w)}v${n1(cellH + 0.6)}h-${n1(w)}Z`);
+    };
+    for (let c = 0; c < cols; c++) {
+      const { info } = grid[r * cols + c];
+      const alt = voxToAlt(info.h);
+      // 西北方向光源的山体阴影 + 谷底略暗；用较宽的核避免石海单格高度噪声造成斑驳
+      const dx = (smoothH(c - 2, r) - smoothH(c + 2, r)) / (4 * cellSize);
+      const dz = (smoothH(c, r + 2) - smoothH(c, r - 2)) / (4 * cellSize);
+      const slope = clamp(dx * 0.62 + dz * 0.78, -1.2, 1.2);
+      const ao = clamp((smoothH(c, r) - (smoothH(c - 3, r) + smoothH(c + 3, r) + smoothH(c, r - 3) + smoothH(c, r + 3)) / 4) * 0.05, -0.1, 0.08);
+      const light = clamp(1 + slope * 0.85 + ao, 0.58, 1.36);
+      let [R, G, B] = color[r * cols + c].map((v) => v * light);
+      const cool = clamp((alt - 2400) / 1800, 0, 1) * 0.07;
+      R *= 1 - cool; B *= 1 + cool * 0.8;
+      if (info.d < 1.4 && info.type !== 'snow') { R += 10; G += 8; B += 4; }
+      const q = (v) => clamp(Math.round(v / 4) * 4, 0, 255);
+      const hex = rgbToHex([q(R), q(G), q(B)]);
+      if (hex !== runColor) { flush(c); runColor = hex; runStart = c; }
+    }
+    flush(cols);
+  }
+  const out = [];
+  for (const [hex, d] of runs) out.push(`<path d="${d.join('')}" fill="${hex}"/>`);
+  return `<g filter="url(#map-sat-soften)">${out.join('')}</g>`;
+}
+
 function terrainFragment(bounds, width, height, mode, scope) {
   const key = terrainKey(bounds, width, height, mode, scope);
   const cached = terrainCache.get(key);
   if (cached) return cached;
+  if (mode === 'satellite') {
+    const fragment = satelliteTerrain(bounds, width, height);
+    terrainCache.set(key, fragment);
+    if (terrainCache.size > MAX_CACHE) terrainCache.delete(terrainCache.keys().next().value);
+    return fragment;
+  }
   const T = mapTransform(bounds, width, height);
   const cellW = width / GRID.cols, cellH = height / GRID.rows;
   const out = [];
@@ -174,21 +311,14 @@ function terrainFragment(bounds, width, height, mode, scope) {
     }
   }
   const fills = new Map();
-  const patterns = new Map();
   for (const cell of cells) {
     const x = cell.x, y = cell.y, w = cellW + 0.5, h = cellH + 0.5;
     const rect = `M${n1(x)},${n1(y)}h${n1(w)}v${n1(h)}h-${n1(w)}Z`;
     let fillPath = fills.get(cell.color);
     if (!fillPath) fills.set(cell.color, (fillPath = []));
     fillPath.push(rect);
-    if (mode === 'satellite') {
-      let patternPath = patterns.get(cell.surface.pattern);
-      if (!patternPath) patterns.set(cell.surface.pattern, (patternPath = []));
-      patternPath.push(rect);
-    }
   }
   for (const [color, d] of fills) out.push(`<path d="${d.join('')}" fill="${color}"/>`);
-  for (const [pattern, d] of patterns) out.push(`<path d="${d.join('')}" fill="url(#map-${pattern})" opacity=".72"/>`);
   if (mode === 'elevation') {
     const values = cells.map((cell) => cell.h);
     const minLevel = Math.ceil(Math.min(...values) / 4) * 4;
@@ -292,19 +422,24 @@ export function routeMapSVG(st = {}, options = {}) {
   const clipId = `map-clip-${width}-${height}`;
   const out = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="鳌太线${mode === 'elevation' ? '高程' : '卫星式'}示意地图">`,
-    `<defs><clipPath id="${clipId}"><rect width="${width}" height="${height}"/></clipPath>${patternDefs()}</defs>`,
+    `<defs><clipPath id="${clipId}"><rect width="${width}" height="${height}"/></clipPath>${mode === 'satellite' ? satelliteDefs(width, height) : ''}</defs>`,
     `<g clip-path="url(#${clipId})">`,
     terrainFragment(bounds, width, height, mode, scope),
-    '<rect width="100%" height="100%" fill="#122027" opacity=".08"/>',
+    mode === 'satellite'
+      ? `<rect width="${width}" height="${height}" filter="url(#map-sat-canopy)" opacity=".34" style="mix-blend-mode:overlay"/><rect width="${width}" height="${height}" filter="url(#map-sat-grain)" opacity=".16" style="mix-blend-mode:overlay"/><rect width="${width}" height="${height}" fill="url(#map-sat-haze)"/><rect width="${width}" height="${height}" fill="url(#map-sat-vignette)"/>`
+      : '<rect width="100%" height="100%" fill="#122027" opacity=".08"/>',
   ];
 
   const visibleRoutes = routePaths().filter(({ path }) => scope === 'all' || routeInBounds(path, bounds));
   const allMainD = routeD(mainPath, T, scope === 'all' ? 8 : 4, scope === 'all' ? null : bounds);
-  out.push(`<path d="${allMainD}" data-route-id="main" fill="none" stroke="#182c2a" stroke-opacity=".75" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`);
+  if (mode === 'satellite') out.push(`<path d="${allMainD}" fill="none" stroke="#0a120e" stroke-opacity=".5" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>`);
+  out.push(mode === 'satellite'
+    ? `<path d="${allMainD}" data-route-id="main" fill="none" stroke="#f3efdf" stroke-opacity=".9" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<path d="${allMainD}" data-route-id="main" fill="none" stroke="#182c2a" stroke-opacity=".75" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`);
   const mainProgress = progressMainS(st);
   if (mainProgress > 0) {
     const walked = pathPrefixD(mainPath, mainProgress, T, scope === 'all' ? 8 : 4);
-    out.push(`<path d="${walked}" data-route-id="main-walked" fill="none" stroke="#f06b43" stroke-opacity=".82" stroke-width="3.2" stroke-linecap="round"/>`);
+    out.push(`<path d="${walked}" data-route-id="main-walked" fill="none" stroke="#ff7a45" stroke-opacity=".95" stroke-width="3.2" stroke-linecap="round"/>`);
   }
   for (const { id, path } of visibleRoutes.filter((route) => route.id !== 'main')) {
     const d = routeD(path, T, scope === 'all' ? 4 : 2, scope === 'all' ? null : bounds);
@@ -351,7 +486,7 @@ export function routeMapSVG(st = {}, options = {}) {
   out.push(text(clamp(px + 10, 14, width - 14), clamp(py + 24, 18, height - 18), '你', 'font-size="12" font-weight="700" fill="#fff2e7" style="paint-order:stroke;stroke:#182521;stroke-width:3px"'));
   out.push('</g>');
 
-  const legend = MAP_LEGENDS[mode].map((item, i) => `<g transform="translate(${n1(14 + (i % 3) * 108)},${n1(height - 28 + Math.floor(i / 3) * 15)})"><rect width="9" height="9" rx="1" fill="${item.color}"/><text x="14" y="9" font-size="10" fill="#e8efe7">${escapeXml(item.label)}</text></g>`).join('');
+  const legend = MAP_LEGENDS[mode].map((item, i) => `<g transform="translate(${n1(14 + (i % 3) * 108)},${n1(height - 28 + Math.floor(i / 3) * 15)})"><rect width="9" height="9" rx="1" fill="${item.color}" stroke="#101a16" stroke-opacity=".6" stroke-width=".8"/><text x="14" y="9" font-size="10" fill="#f1f5ee" style="paint-order:stroke;stroke:#101a16;stroke-width:3px;stroke-linejoin:round">${escapeXml(item.label)}</text></g>`).join('');
   out.push(`<g>${legend}</g>`);
   out.push(text(width - 12, 16, scope === 'all' ? '全线概览' : '当前位置附近', 'font-size="11" fill="#e8efe7" text-anchor="end"'));  out.push(text(width - 12, height - 8, '游戏地形示意，非真实卫星影像/不可导航', 'font-size="10" fill="#e8efe7" text-anchor="end" style="paint-order:stroke;stroke:#182521;stroke-width:3px"'));
   out.push('</svg>');

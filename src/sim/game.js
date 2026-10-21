@@ -31,8 +31,8 @@ import { EXIT_EVENTS } from '../data/events-exits.js';
 import { clamp, lerp } from '../world/noise.js';
 import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST, EPILOGUE_LIST } from './records.js';
 
-export const TIME_SCALE = 4; // 游戏分钟 / 现实秒
-const BASE_SPEED = 3.2;
+export const TIME_SCALE = 8; // 游戏分钟 / 现实秒
+const BASE_SPEED = 6.4;
 const SAVE_KEY = 'aotai-save-v1';
 const NPC_COND = { straggler: 30, wu: 35, boy: 30, chen: 25, yu: 55, mou: 90, speedteam: 80 };
 const PASS_FATE = { wu: 'died', boy: 'died', straggler: 'died', yu: 'waited', chen: 'died', mou: 'safe', speedteam: 'danger' };
