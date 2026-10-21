@@ -149,8 +149,8 @@ const app = {
     if (!st || game.over) return;
     if (st.camp && st.camp.inside) return game.toast('先收起营地再出发。', 'warn');
     if (st.flags.freeDescent) return game.toast('自行下撤时请手动移动；下撤菜单可切回既有路线。', 'info');
+    if (st.body.collapsed && st.body.stamina <= 14) return game.toast('体力耗尽时只能手动爬行；休息或吃东西可以恢复。', 'warn');
     game.autoWalk = !game.autoWalk;
-    if (game.autoWalk && st.body.collapsed) game.toast('你现在走不动。先休息、吃点东西。', 'warn');
   },
   togglePace() { game.togglePace(); },
   restMenu() {

@@ -6,6 +6,7 @@ import { ensureStoryState } from './stories.js';
 import { difficultyProfile } from './difficulty.js';
 import { ensureClothes, selectedClothes } from './clothes.js';
 import { ensurePsychology } from './stress.js';
+import { ensureFire } from './fire.js';
 
 export function createState(roleId, difficulty = 'easy') {
   const role = roleById(roleId);
@@ -23,6 +24,7 @@ export function createState(roleId, difficulty = 'easy') {
     water: { liquid: 0, frozen: 0 },
     thermos: { l: 0, temp: 20 },
     gas: { normal: 0, alpine: 0 },
+    fire: { active: false, fuel: null, balance: 0, scrapped: 0 },
     warmers: 0,
     warmerLeft: 0,
     alcoholLeft: 0,
@@ -61,6 +63,7 @@ export function createState(roleId, difficulty = 'easy') {
   ensureStoryState(st);
   ensureClothes(st);
   ensurePsychology(st);
+  ensureFire(st);
   return st;
 }
 

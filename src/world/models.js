@@ -164,6 +164,18 @@ export function animateCharacter(ch, dt, moving, speed = 1, pose = 'stand') {
     u.armR.rotation.set(0, 0, 0);
     u.head.rotation.set(0, 0, 0);
   }
+  if (pose === 'crawl') {
+    u.body.position.y = -0.5;
+    u.body.rotation.x = 0.72;
+    u.head.rotation.x = 0.2;
+    u.phase += dt * 8 * Math.max(0.5, speed);
+    const a = Math.sin(u.phase) * 0.24;
+    u.armL.rotation.x = -0.95 + a;
+    u.armR.rotation.x = -0.95 - a;
+    u.legL.rotation.x = -1.25 - a;
+    u.legR.rotation.x = -1.25 + a;
+    return;
+  }
   if (pose === 'sit') {
     u.body.position.y = -0.62;
     u.legL.rotation.x = -1.45;

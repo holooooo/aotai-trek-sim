@@ -27,6 +27,7 @@ import { ensureLampMode, updateLamp } from './lighting.js';
 import { ensurePsychology } from './stress.js';
 import { applyFood, foodEffectSummary } from './nutrition.js';
 import { ensureEncounters, npcEncounterAllowed, eventEncounterAllowed } from './encounters.js';
+import { ensureFire, lightFire, fireCostAvailable, consumeFire } from './fire.js';
 import { RANDOM_EVENTS } from '../data/events-random.js';
 import { STRESS_EVENTS } from '../data/events-stress.js';
 import { EXIT_EVENTS } from '../data/events-exits.js';
@@ -35,6 +36,7 @@ import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST, EPILOGUE_LIS
 
 export const TIME_SCALE = 8; // 游戏分钟 / 现实秒
 const BASE_SPEED = 6.4;
+const CRAWL_PACE = Object.freeze({ speed: 1, effort: 1, risk: 1 });
 const SAVE_KEY = 'aotai-save-v1';
 const NPC_COND = { straggler: 30, wu: 35, boy: 30, chen: 25, yu: 55, mou: 90, speedteam: 80 };
 const PASS_FATE = { wu: 'died', boy: 'died', straggler: 'died', yu: 'waited', chen: 'died', mou: 'safe', speedteam: 'danger' };
@@ -72,6 +74,7 @@ export class Game {
     ensureEventPacing(st);
     ensureClothes(st);
     ensurePsychology(st);
+    ensureFire(st);
     ensureLampMode(st);
     ensureEncounters(st, NPCS, ALL_EVENTS, { fresh });
     st.pace = st.pace === 'fast' ? 'fast' : 'walk';
@@ -291,12 +294,23 @@ export class Game {
   activity() {
     if (this.st.camp && this.st.camp.inside) return 'rest';
     if (this.crouch) return 'crouch';
-    if (this.moving) return 'walk';
+    if (this.moving) return this.isCrawling() ? 'crawl' : 'walk';
     return 'idle';
   }
 
+  isCrawling() {
+    return !!(this.st?.body?.collapsed && !(this.st.camp && this.st.camp.inside));
+  }
+
+  travelPace() {
+    return this.isCrawling() ? CRAWL_PACE : paceProfile(this.st, this.crouch);
+  }
+
+  isImmortal() {
+    return this.role?.immortal === true;
+  }
+
   // ———————————————————— 移动 ————————————————————
-  travelPace() { return paceProfile(this.st, this.crouch); }
 
   togglePace() {
     if (!this.st || this.over || this.busy || this.eventRunning || this.ui.modalOpen) return;
@@ -313,6 +327,10 @@ export class Game {
     let f = this.role.mods.speed * (TERRAIN[info.type]?.speed ?? 0.8);
     if (info.ice && !has(st, 'crampons') && !has(st, 'microspikes')) f *= 0.65;
     if (b.stamina < 25) f *= 0.5 + (b.stamina / 25) * 0.5;
+    if (this.isCrawling()) {
+      const crawlSpeed = this.role.hungryCrawlSpeed && b.food <= 5 ? this.role.hungryCrawlSpeed : (this.role.crawlSpeed ?? 0.26);
+      f *= crawlSpeed;
+    }
     if (b.sprain > 0) f *= 0.6;
     if (b.fracture > 0) f *= b.fracture >= 1 ? 0.4 : 0.6;
     if (b.core < 35) f *= 0.85;
@@ -357,6 +375,11 @@ export class Game {
 
   updateMovement(dt) {
     const st = this.st, b = st.body;
+    if (b.stamina <= 0 && !b.collapsed) {
+      b.collapsed = true;
+      this.autoWalk = false;
+      this.toast('体力耗尽了。你还能缓慢爬行；休息或吃东西恢复体力。', 'danger', 5000);
+    }
     const inp = this.input.move();
     this.crouch = this.input.crouchHeld();
     let mx = 0, mz = 0;
@@ -381,9 +404,9 @@ export class Game {
         if (L > 0.3) { mx = dx / L; mz = dz / L; }
       }
     }
-    if (b.collapsed) {
-      if (b.stamina > 14) { b.collapsed = false; this.toast('你缓过来一点了。', 'info'); }
-      else { mx = 0; mz = 0; }
+    if (b.collapsed && b.stamina > 14) {
+      b.collapsed = false;
+      this.toast('你缓过来一点了。', 'info');
     }
     if (this.crouch) { mx = 0; mz = 0; }
     let pushX = 0, pushZ = 0;
@@ -407,12 +430,6 @@ export class Game {
     } else {
       this.grade *= 0.9;
     }
-    if (b.stamina <= 0 && this.moving && !b.collapsed) {
-      b.collapsed = true;
-      this.autoWalk = false;
-      this.toast('你的腿一软，坐倒在雪里。体力耗尽了——休息、吃东西。', 'danger', 5000);
-    }
-
     // 竖直方向
     const ground = this.world.height(this.pos.x, this.pos.z);
     if (this.falling) {
@@ -663,11 +680,15 @@ export class Game {
     if (b.core > 35.6) this.noteCd.hypoSting = false;
     note('hypo1', b.core < 35 && b.core >= 33.5, '寒战越来越剧烈，手指不听使唤——轻度失温。吃热的、穿上保暖层、找地方避风。', 'danger', 120);
     note('hypo2', b.core < 33.5, '你的思维变得很慢，周围的声音好像隔了一层……', 'danger', 90);
-    note('hungry', b.food < 20 && b.food > 5, '饿得发慌。身体没有燃料，就产不出热量。', 'warn', 180);
+    note('hungryEarly', b.food < 35 && b.food >= 20, '补给快见底了：你开始感到饥饿，尽快吃点东西。', 'warn', 180);
+    note('hungry', b.food < 20 && b.food > 5, '饿得发慌。身体没有燃料，就产不出热量。', 'danger', 120);
     note('starve', b.food <= 5, '你已经没有任何能量了。', 'danger', 120);
-    note('thirst', b.water < 20, '口渴得厉害。冬季脱水同样致命。', 'warn', 180);
+    note('thirstEarly', b.water < 35 && b.water >= 20, '水分快见底了：冬季脱水会让体力和判断力一起下降。', 'warn', 180);
+    note('thirst', b.water < 20, '口渴得厉害。冬季脱水同样致命。', 'danger', 120);
     note('wet', b.wet > 50, '衣服湿透了，保暖能力大打折扣。', 'warn', 240);
-    note('tired', b.stamina < 15 && this.moving, '腿像灌了铅。', 'warn', 90);
+    note('tiredEarly', b.stamina < 25 && b.stamina >= 15 && this.moving, '体力快见底了，放慢脚步或准备补给。', 'warn', 90);
+    note('tired', b.stamina < 15 && b.stamina > 0 && this.moving, '体力所剩不多了，马上会进入缓慢爬行。', 'danger', 90);
+    note('exhausted', b.stamina <= 0, '体力耗尽了。你还能缓慢爬行；休息或吃东西恢复体力。', 'danger', 120);
     note('frost', b.frostbite > 25, '手指和脚趾失去了知觉——冻伤。', 'danger', 300);
     note('snowblind', b.snowblind > 50, '眼睛刺痛流泪——雪盲。雪镜不是装饰品。', 'warn', 300);
     note('altsick', b.altSick > 40, '头疼欲裂，有点恶心——轻微高反。', 'warn', 360);
@@ -678,7 +699,7 @@ export class Game {
 
   checkDeath() {
     const b = this.st.body;
-    if (this.over) return;
+    if (this.over || this.isImmortal()) return;
     if (b.core < 28) return this.die('hypothermia');
     if (b.health <= 0) return this.die(b.lastHarm || 'hypothermia');
   }
@@ -701,7 +722,15 @@ export class Game {
     this.autoWalk = false;
     this.addStress(10 + h);
     if (msg) this.toast(msg, 'danger', 5000);
-    if (h > 16) return this.die('fall');
+    if (h > 16) {
+      if (this.isImmortal()) {
+        this.hurt(45, 'fall');
+        b.fracture = Math.max(b.fracture, 1);
+        this.toast('你摔了下去，但又从雪里爬了出来。', 'danger', 5000);
+        return;
+      }
+      return this.die('fall');
+    }
     if (h > 10) {
       this.hurt(60 + Math.random() * 20, 'fall');
       b.fracture = 1;
@@ -1631,16 +1660,70 @@ export class Game {
   campMenuInfo() {
     const st = this.st;
     const env = this.env;
+    const fire = ensureFire(st);
+    const dryCount = canDryClothes(st) ? dryableClothes(st).length : 0;
     return {
       bivy: !!st.camp.bivy,
       tentHealth: st.camp.bivy ? null : Math.round(st.camp.health),
       inside: env ? Math.round(env.Teff) : null,
-      canCook: has(st, 'stove') && has(st, 'pot') && st.gas.normal + st.gas.alpine > 0,
+      fireLit: fire.active,
+      fireFuel: fire.fuel,
+      fireBalance: fire.balance,
+      fireScrapped: fire.scrapped,
+      canLightFire: !fire.active && has(st, 'stove') && has(st, 'lighter') && st.gas.normal + st.gas.alpine > 0,
+      canCook: fireCostAvailable(st, 1) && has(st, 'stove') && has(st, 'pot'),
+      canNoodle: fireCostAvailable(st, 2) && has(st, 'stove') && has(st, 'pot') && has(st, 'noodle'),
+      canDryFire: fireCostAvailable(st, 2) && dryCount > 0,
       canSos: this.comms().any,
       canDry: canDryClothes(st),
       rescue: st.rescue?.self ? true : null,
       night: this.night() || this.hour() > 15.5,
     };
+  }
+
+  lightCampFire() {
+    const st = this.st;
+    if (!st || this.over || this.busy || this.eventRunning) return;
+    if (!has(st, 'stove') || !has(st, 'lighter')) return this.toast('需要炉头、打火机和气罐。', 'warn');
+    const result = lightFire(st);
+    if (!result.ok) return this.toast(result.reason === 'already_lit' ? '火已经点着了。' : '没有可用气罐。', 'warn');
+    this.toast(`火点着了。${result.fuel === 'alpine' ? '高山气罐' : '普通气罐'}火焰余额 ${result.fire.balance}。`, 'good', 4000);
+    this.save();
+    if (st.camp?.inside && !this.eventRunning) this.ui.showCampMenu(this.campMenuInfo());
+  }
+
+  _consumeFire(cost, label) {
+    const result = consumeFire(this.st, cost);
+    if (!result.ok) {
+      this.toast(result.reason === 'unlit' ? '请先点火。' : `火焰余额不足，无法${label}。`, 'warn');
+      return null;
+    }
+    if (result.scrapped) this.toast('火焰余额耗尽，这一瓶气罐已经报废。', 'warn', 4500);
+    return result;
+  }
+
+
+  async dryClothesByFire() {
+    const st = this.st;
+    if (!st || this.over || this.busy || this.eventRunning) return;
+    if (!fireCostAvailable(st, 2)) return this._consumeFire(2, '烘干衣物');
+    if (!canDryClothes(st)) return this.toast('需要在完好、已进入的帐篷里处理湿衣。', 'warn');
+    const ids = dryableClothes(st);
+    if (!ids.length) return this.toast('没有可烘干的湿衣。请先在背包里脱下要处理的湿衣。', 'info', 5000);
+    const started = beginClothesDrying(st, { assisted: false });
+    if (!started) return this.toast('没有可烘干的湿衣。', 'info');
+    const fire = this._consumeFire(2, '烘干衣物');
+    if (!fire) return;
+    ensureClothes(st).dryingWarmLeft = Math.max(ensureClothes(st).dryingWarmLeft, 30);
+    const before = started.ids.reduce((sum, id) => sum + garmentWetness(st, id), 0);
+    this.ui.hideCampMenu();
+    this.ui.setBusy('用炉火烘干衣物……', true);
+    const reason = await this.skip(30, 'rest', { check: () => st.camp?.collapsed || !st.camp?.inside ? 'camp' : null });
+    this.ui.setBusy(null);
+    if (this.over || this.st !== st) return;
+    const after = started.ids.reduce((sum, id) => sum + garmentWetness(st, id), 0);
+    if (reason) { ensureClothes(st).drying = []; this.toast('烘干被营地状况打断了。', 'warn'); }
+    if (st.camp?.inside) this.ui.showCampMenu(this.campMenuInfo());
   }
 
   async dryClothes() {
@@ -1912,7 +1995,7 @@ export class Game {
   async cook(silent = false) {
     const st = this.st;
     if (!has(st, 'stove') || !has(st, 'pot')) return this.toast('需要炉头和锅。', 'warn');
-    if (st.gas.normal + st.gas.alpine <= 0) return this.toast('气罐用完了。', 'warn');
+    if (!fireCostAvailable(st, 1)) return this._consumeFire(1, '烧水');
     const camp = st.camp, wasInside = !!camp?.inside;
     const origin = { x: this.pos.x, y: this.pos.y, z: this.pos.z };
     if (wasInside && !camp.bivy) {
@@ -1926,23 +2009,16 @@ export class Game {
       Object.assign(this.pos, spot);
       st.pos = { x: spot.x, z: spot.z };
     }
+    const fire = this._consumeFire(1, '烧水');
+    if (!fire) return;
     if (wasInside) { camp.inside = false; this.ui.hideCampMenu(); }
     this.updateLampState();
     const T = this.airT();
     const windy = this.wx().wind * this.exposure() > 10;
     this.ui.setBusy('在帐外烧水……');
     let ok = true;
-    if (st.gas.alpine > 0) {
-      st.gas.alpine -= windy ? 2 : 1;
-    } else {
-      const cold = T < -6 && !st.keepWarm;
-      if (cold && this.roll(0.45)) {
-        st.gas.normal -= 1;
-        ok = false;
-      } else st.gas.normal -= cold || windy ? 2 : 1;
-    }
-    st.gas.alpine = Math.max(0, st.gas.alpine);
-    st.gas.normal = Math.max(0, st.gas.normal);
+    const cold = T < -6 && !st.keepWarm;
+    if (fire.fuel === 'normal' && cold && this.roll(0.45)) ok = false;
     try {
       await this.skip(windy ? 25 : 15, 'idle', { check: () => wasInside && (camp.collapsed || camp.health <= 0) ? 'camp' : null });
     } finally {
@@ -1982,9 +2058,34 @@ export class Game {
     this.save();
   }
 
+  async cookNoodles() {
+    const st = this.st;
+    if (!has(st, 'stove') || !has(st, 'pot')) return this.toast('需要炉头和锅。', 'warn');
+    if (!has(st, 'noodle')) return this.toast('背包里没有方便面。', 'warn');
+    if (st.water.liquid < 0.3 && st.water.frozen < 0.3) return this.toast('煮面需要至少0.3升水。', 'warn');
+    if (!fireCostAvailable(st, 2)) return this._consumeFire(2, '煮方便面');
+    const fire = this._consumeFire(2, '煮方便面');
+    if (!fire) return;
+    if (st.water.liquid >= 0.3) st.water.liquid -= 0.3;
+    else st.water.frozen = Math.max(0, st.water.frozen - 0.3);
+    removeItem(st, 'noodle');
+    const oldThermos = { l: st.thermos.l, temp: st.thermos.temp };
+    st.thermos.l = 0.3;
+    st.thermos.temp = 92;
+    this.ui.hideCampMenu();
+    this.ui.setBusy('煮方便面……', true);
+    const reason = await this.skip(12, 'rest', { check: () => st.camp?.collapsed || !st.camp?.inside ? 'camp' : null });
+    this.ui.setBusy(null);
+    if (this.over || this.st !== st) return;
+    if (reason) { this.toast('煮面被营地状况打断了。', 'warn'); this.save(); return; }
+    this.eat('noodle');
+    if (st.thermos.l <= 0.01) { st.thermos.l = oldThermos.l; st.thermos.temp = oldThermos.temp; }
+    this.save();
+    if (st.camp?.inside) this.ui.showCampMenu(this.campMenuInfo());
+  }
+
   useWarmer() {
     const st = this.st;
-    if (st.warmers <= 0) return;
     st.warmers--;
     st.warmerLeft = 480;
     this.toast('暖宝宝贴在了后腰上。', 'info');
@@ -2021,7 +2122,10 @@ export class Game {
 
   // ———————————————————— 结局 ————————————————————
   die(cause) {
-    if (this.over) return;
+    if (this.over || this.isImmortal()) {
+      if (this.isImmortal() && !this.over) this.toast('你没有死去，只是需要从雪里继续爬出来。', 'warn', 4500);
+      return;
+    }
     this.log('遇难');
     this.finish('dead', cause);
   }
@@ -2197,7 +2301,7 @@ export class Game {
     const inCamp = st.camp && st.camp.inside;
     this.player.visible = !(inCamp && !st.camp.bivy);
     this.player.position.copy(this.pos);
-    const pose = inCamp && st.camp.bivy ? 'sit' : this.crouch ? 'crouch' : st.body.collapsed ? 'sit' : (!this.moving && this.restTimer > 2 && this.busy) ? 'sit' : 'stand';
+    const pose = inCamp && st.camp.bivy ? 'sit' : this.crouch ? 'crouch' : this.isCrawling() ? (this.moving ? 'crawl' : 'sit') : (!this.moving && this.restTimer > 2 && this.busy) ? 'sit' : 'stand';
     animateCharacter(this.player, dt, this.moving, this.speedFactor(), pose);
 
     // 相机
@@ -2279,13 +2383,23 @@ export class Game {
     // 屏幕效果
     const b = st.body;
     const coldK = clamp((36.6 - b.core) / 4, 0, 1);
+    const hungerK = clamp((35 - b.food) / 35, 0, 1);
+    const thirstK = clamp((35 - b.water) / 35, 0, 1);
+    const fatigueK = clamp((25 - b.stamina) / 25, 0, 1);
+    const wetK = clamp((b.wet - 35) / 65, 0, 1);
+    const altitudeK = clamp((b.altSick - 25) / 75, 0, 1);
     this.world.setGrade({ cold: coldK, desat: clamp((35.2 - b.core) / 3.5, 0, 1) * 0.8 + clamp((b.stress - 75) / 25, 0, 1) * 0.25, vignette: clamp((b.stress - 50) / 50, 0, 1) + clamp((40 - b.health) / 40, 0, 1) });
     this.ui.setEffects({
       cold: coldK,
+      hunger: hungerK,
+      thirst: thirstK,
+      fatigue: fatigueK,
+      wet: wetK,
+      altitude: altitudeK,
       hurt: clamp((50 - b.health) / 50, 0, 1),
       stress: clamp((b.stress - 60) / 40, 0, 1),
       white: (wx.blizzard ? 0.2 : wx.fog > 0.8 ? 0.07 : 0) * clamp((sunEl + 0.1) / 0.3, 0, 1),
-      blur: clamp((b.snowblind - 40) / 60, 0, 1) + clamp((33.5 - b.core) / 3, 0, 1),
+      blur: clamp((b.snowblind - 40) / 60, 0, 1) + clamp((33.5 - b.core) / 3, 0, 1) + altitudeK * 0.45,
       dark: b.collapsed ? 0.5 : 0,
       frost: clamp((-T - 12) / 20, 0, 1) * (inCamp && !st.camp?.bivy ? 0.3 : 1),
       wind: wx.blizzard ? 1 : clamp((windS * this.exposure() - 12) / 12, 0, 1),

@@ -197,7 +197,7 @@ export const EXPANDED_EVENTS = [
         choice('retreat', '把燃料算进下撤安排', '需要重新规划路线；原定进度会被打乱'),
       ]);
       mark(g, 'fuelChecked', c);
-      if (c === 'cook') { await g.cook(true); if (g.over) return; }
+      if (c === 'cook') { g.lightCampFire(); await g.cook(true); if (g.over) return; }
       else if (c === 'retreat') await g.retreatMenu();
       else g.changeBody('stress', 2);
     },

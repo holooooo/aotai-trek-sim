@@ -19,7 +19,7 @@ const EXTRA_FIELDS = Object.freeze({
   event_completed: ['eventId'],
   run_ended: ['ending', 'cause', 'death'],
 });
-const ROLE_IDS = new Set(['student', 'veteran', 'blogger', 'runner', 'nurse', 'coder', 'cook', 'geographer', 'porter', 'photographer']);
+const ROLE_IDS = new Set(['student', 'veteran', 'blogger', 'runner', 'nurse', 'coder', 'cook', 'geographer', 'porter', 'photographer', 'qu']);
 const DIFFICULTY_IDS = new Set(['easy', 'normal', 'hardcore']);
 const ENDING_IDS = new Set(['sausage', 'sigma', 'retreat_wild', 'turnback', 'retreat', 'retreat_branch', 'rescued', 'cross', 'dayehai', 'dead']);
 const CAUSE_IDS = new Set(['hypothermia', 'fall', 'dehydration', 'starvation', 'injury', 'exhaustion']);

@@ -59,6 +59,16 @@ test('all original role IDs remain available through roleById', () => {
   assert.equal(new Set(ROLES.map((role) => role.id)).size, ROLES.length);
 });
 
+test('hidden role remains constructible with immortal and hungry crawl abilities', () => {
+  const role = roleById('qu');
+  assert.ok(role);
+  assert.equal(role.hidden, true);
+  assert.equal(role.immortal, true);
+  assert.ok(role.crawlSpeed > 0 && role.hungryCrawlSpeed > role.crawlSpeed);
+  const st = createState('qu', 'easy');
+  assert.equal(st.role, 'qu');
+  assert.ok(st.inv && st.body && st.fire);
+});
 test('cook foodComfort is consumed by real food stress relief', () => {
   const cook = createState('cook', 'easy');
   const ordinary = createState('student', 'easy');

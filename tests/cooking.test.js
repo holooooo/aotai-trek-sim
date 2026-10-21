@@ -11,6 +11,7 @@ function fixture({ flat = true, wind = 20, air = -2 } = {}) {
   st.inv.stove = 1;
   st.inv.pot = 1;
   st.gas = { normal: 2, alpine: 0 };
+   st.fire = { active: true, fuel: 'normal', balance: 6, scrapped: 0 };
   st.thermos = { l: 0, temp: 20 };
   st.body.water = 50;
   st.camp = { inside: true, bivy: false, collapsed: false, health: 100, tent: 'tent_alpine', x: 10, z: 10, rot: 0, exposure: 1, orient: 1 };
@@ -55,7 +56,7 @@ test('cooking from a sound tent cooks outside on level ground, then restores the
   await game.cook(true);
   assert.deepEqual(game.skipCalls, [{ minutes: 25, mode: 'idle', inTent: false, x: 13, z: 10 }]);
   assertRestored(game);
-  assert.equal(game.st.gas.normal, 0, 'windy outside cooking consumes two normal gas units');
+  assert.equal(game.st.gas.normal, 1, '烧水消耗一格火焰余额');
   assert.equal(game.st.body.water, beforeWater + 6);
 });
 
@@ -68,7 +69,7 @@ test('cooking duration and normal gas use follow outside wind and cold condition
   const cold = fixture({ wind: 2, air: -20 });
   await cold.cook(true);
   assert.deepEqual(cold.skipCalls.map(({ minutes, mode, inTent }) => ({ minutes, mode, inTent })), [{ minutes: 15, mode: 'idle', inTent: false }]);
-  assert.equal(cold.st.gas.normal, 0, 'cold normal-gas cooking consumes two units even when the flame succeeds');
+  assert.equal(cold.st.gas.normal, 1, '低温导致本次不一定烧开，但只消耗一格火焰余额');
 });
 
 test('cooking refuses a nearby uneven spot without spending gas or changing water', async () => {

@@ -190,9 +190,6 @@ body { font-family: var(--body); color: var(--ink); -webkit-font-smoothing: anti
 /* 扫码入口保持静止、高对比，白色静区包含在二维码图片内。 */
 .logo .edition { font-family: var(--display); font-size: 24px; color: var(--blue); letter-spacing: 0; margin-left: 6px; text-shadow: 2px 2px 0 #000; }
 .logo.sm .edition { font-size: 18px; }
-.qr-row { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 12px; align-items: center; }
-.qr-row .qr { display: block; width: 128px; height: 128px; background: white; image-rendering: pixelated; }
-.qr-row .url, #r2.qr-row .url { font-size: 22px; }
 #sCard .cmt { font-size: 26px; letter-spacing: .02em; }
 
 /* 19 尾部互动钩子 */

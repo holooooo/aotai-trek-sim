@@ -130,6 +130,23 @@ export const ROLES = [
     inv: { pack_40: 1, base_synth: 1, mid_fleece: 1, insul_down: 1, shell_pro: 1, pants_hard: 1, shoes_trail: 1, gloves: 1, hat: 1, camera: 1, powerbank: 2, watch: 1, headlamp: 1, compass: 1, poles: 1, water: 2, selfheat: 2, trail_mix: 3, bar: 2, firstaid: 1 },
     look: { jacket: 0x5c6bc0, pants: 0x20252b, hat: 0xd7bde2, pack: 0x263238, skin: 0xf0c5a1 },
   },
+  {
+    id: 'qu',
+    name: '区',
+    short: '区',
+    tagline: '"这次，先爬过去再说。"',
+    desc: '一个不太讲道理的例外。不会真正死去，饿倒后反而能爬得更快。',
+    money: 99999,
+    hidden: true,
+    crawlSpeed: 1.7,
+    hungryCrawlSpeed: 2.1,
+    immortal: true,
+    mods: { staminaDrain: 0.45, speed: 1.2, heatLoss: 0.65, stressGain: 0.2, nav: 1.5, firstAid: 1, persuade: 1, keepWarmElectronics: true },
+    skills: [{ name: '不死', desc: '不会因体温或健康归零而结束行程。' }, { name: '饿得快爬', desc: '饿倒后爬行速度显著提高。' }],
+    flaws: [{ name: '不合常理', desc: '没有人能解释你为什么还在动。' }, { name: '不知疲倦', desc: '这或许不是一件好事。' }],
+    inv: { pack_day: 1, base_synth: 1, shell_pro: 1, pants_hard: 1, shoes_trail: 1, gloves: 1, headlamp: 1, water: 2, bar: 3 },
+    look: { jacket: 0x7c4dff, pants: 0x241638, hat: 0xf7d154, pack: 0x241f35, skin: 0xe8c39e },
+  },
 ];
 
 export const roleById = (id) => ROLES.find((r) => r.id === id);

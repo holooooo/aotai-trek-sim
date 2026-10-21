@@ -69,6 +69,37 @@ test('camping and unknown legacy pace values do not accelerate movement or resti
 });
 
 
+test('exhausted characters keep manual crawl speed and fast pace cannot accelerate crawling', () => {
+  const walking = fixture('student');
+  const crawling = fixture('student');
+  crawling.st.body.collapsed = true;
+  crawling.st.body.stamina = 0;
+  const normal = walking.speedFactor();
+  const crawl = crawling.speedFactor();
+  assert.ok(crawl > 0, 'exhaustion keeps movement available');
+  assert.ok(crawl < normal * 0.45, `${crawl} should be materially slower than ${normal}`);
+  crawling.st.pace = 'fast';
+  assert.equal(crawling.speedFactor(), crawl, 'fast pace is neutral while crawling');
+  assert.equal(crawling.travelPace().speed, 1);
+});
+
+test('zero stamina alone does not kill ordinary roles, while hidden role ignores lethal checks', () => {
+  const ordinary = fixture('student');
+  ordinary.st.body.stamina = 0;
+  ordinary.die = () => { ordinary.over = true; };
+  ordinary.checkDeath();
+  assert.equal(ordinary.over, false);
+  ordinary.st.body.health = 0;
+  ordinary.checkDeath();
+  assert.equal(ordinary.over, true);
+
+  const hidden = fixture('qu');
+  hidden.st.body.health = 0;
+  hidden.st.body.core = 20;
+  hidden.die = () => { hidden.over = true; };
+  hidden.checkDeath();
+  assert.equal(hidden.over, false);
+});
 test('death in the current simulation step is not overwritten by an arriving rescue', () => {
   const g = fixture();
   g.st.body.health = 0.001; g.st.body.core = 30;

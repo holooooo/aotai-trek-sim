@@ -8,6 +8,7 @@ import { WAYPOINTS, BRANCHES } from '../data/route.js';
 import { npcById } from '../data/npcs.js';
 import { createState, addItem, removeItem, has, packWeight, packCapacity } from '../sim/state.js';
 import { isClothWorn, garmentWetness, dryableClothes, canDryClothes } from '../sim/clothes.js';
+import { ensureFire, fireCostAvailable } from '../sim/fire.js';
 import { routeMapSVG } from './map-renderer.js';
 import { DIFFICULTIES, difficultyProfile } from '../sim/difficulty.js';
 import { fmtClock, fmtDateTime } from '../sim/game.js';
@@ -15,6 +16,8 @@ import { foodEffectSummary, activeFoodEffects } from '../sim/nutrition.js';
 import { ensureLampMode } from '../sim/lighting.js';
 import { icon, WEATHER_ICON } from './icons.js';
 import { loadRecords, clearRecords, summarize, ENDING_LIST, EPILOGUE_LIST } from '../sim/records.js';
+import { isRoleUnlocked, unlockRole } from '../sim/role-unlocks.js';
+import { getLocale, setLocale, translate } from '../i18n.js';
 
 // 作者主页（标题页引流）
 const SOCIALS = [
@@ -62,7 +65,8 @@ export class UI {
       screen: $('#screen'), hud: $('#hud'), sheet: $('#sheet'), dialog: $('#dialog'), card: $('#card'),
       busy: $('#busy'), toasts: $('#toasts'), joy: $('#joy'), canvas: $('#c'),
       fx: {
-        cold: $('.fx-cold'), hurt: $('.fx-hurt'), stress: $('.fx-stress'), white: $('.fx-white'), dark: $('.fx-dark'), flash: $('.fx-flash'),
+        cold: $('.fx-cold'), hunger: $('.fx-hunger'), thirst: $('.fx-thirst'), fatigue: $('.fx-fatigue'), wet: $('.fx-wet'), altitude: $('.fx-altitude'),
+        hurt: $('.fx-hurt'), stress: $('.fx-stress'), white: $('.fx-white'), dark: $('.fx-dark'), flash: $('.fx-flash'),
         frost: $('.fx-frost'), wind: $('.fx-wind'),
       },
     };
@@ -107,46 +111,58 @@ export class UI {
     this._syncInput();
   }
 
-  privacyControls() {
-    return `<div class="privacy-controls"><p>匿名统计默认开启，使用随机浏览器编号汇总游玩、道具、事件与结局；匿名统计不保存姓名、IP或现实地理位置。死亡血迹的游戏坐标共享由下方独立开关控制。Cloudflare处理基础网络连接信息。你可随时关闭；关闭后停止上报并清除本机标识与队列，旧本地历史不会补报。选择比例仍可只读查看。</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? '匿名统计已开启 · 点击关闭' : '匿名统计已关闭 · 点击开启'}</button></div>`;
+  privacyControls(locale = getLocale()) {
+    const t = (key, vars) => translate(locale, key, vars);
+    return `<div class="privacy-controls"><p>${t('privacyText')}</p><button class="sbtn alt" data-act="privacy" aria-pressed="${!!this.analytics?.enabled}">${this.analytics?.enabled ? t('analyticsOn') : t('analyticsOff')}</button></div>`;
   }
 
-  remainsControls() {
+  remainsControls(locale = getLocale()) {
+    const t = (key, vars) => translate(locale, key, vars);
     const r = this.remains;
-    return `<div class="privacy-controls remains-controls"><h4>死亡血迹</h4><p>地面血迹记录自己过去行程和附近玩家的死因，仅是游戏标记。只加载附近记录；关闭后停止显示、查询和新增共享。</p>
-      <button class="sbtn ${r?.enabled ? 'on' : 'alt'}" data-act="remains" aria-pressed="${!!r?.enabled}">${r?.enabled ? '死亡血迹已开启 · 点击关闭' : '死亡血迹已关闭 · 点击开启'}</button>
-      <button class="sbtn ${r?.shared ? 'on' : 'alt'}" data-act="remains-shared" aria-pressed="${!!r?.shared}" ${r?.enabled ? '' : 'disabled'}>${r?.shared ? '匿名共享已开启' : '仅显示本机记录'}</button>
-      <p>共享仅含随机记录编号、游戏坐标、角色、死因和最终状态，保留30天；独立于匿名统计。关闭共享会丢弃待发记录，重新开启不会补报旧记录。本机最多保存60条。</p>
-      <button class="sbtn alt" data-act="remains-clear">清空本机血迹</button></div>`;
+    return `<div class="privacy-controls remains-controls"><h4>${t('remainsTitle')}</h4><p>${t('remainsText')}</p>
+      <button class="sbtn ${r?.enabled ? 'on' : 'alt'}" data-act="remains" aria-pressed="${!!r?.enabled}">${r?.enabled ? t('remainsOn') : t('remainsOff')}</button>
+      <button class="sbtn ${r?.shared ? 'on' : 'alt'}" data-act="remains-shared" aria-pressed="${!!r?.shared}" ${r?.enabled ? '' : 'disabled'}>${r?.shared ? t('sharedOn') : t('sharedOff')}</button>
+      <p>${t('remainsDetails')}</p>
+      <button class="sbtn alt" data-act="remains-clear">${t('clearRemains')}</button></div>`;
   }
 
   showTitle({ hasSave }) {
+    const locale = getLocale();
+    const t = (key, vars) => translate(locale, key, vars);
+    let secretClicks = 0;
     const page = this._page(`
       <div class="title-block">
-        <div class="title-kicker">QINLING · 3767M · WINTER</div>
-        <div class="title-main"><span>鳌太线</span><span class="title-edition">3D版</span></div>
-        <div class="title-sub">冬季穿越模拟器</div>
-        <div class="stamp">禁止穿越</div>
-        <div class="tagline">${SAUSAGE_SVG}<span>门口没有烤肠的山，不要爬。</span></div>
+        <div class="title-kicker">${t('titleKicker')}</div>
+        <div class="title-main"><span>${t('titleMain')}</span><span class="title-edition">${t('titleEdition')}</span></div>
+        <div class="title-sub">${t('titleSub')}</div>
+        <button type="button" class="stamp title-secret-stamp" data-act="secret-stamp" aria-label="${locale === 'en' ? 'Do not cross' : '禁止穿越'}">${locale === 'en' ? 'DO NOT CROSS' : '禁止穿越'}</button>
+        <div class="tagline">${SAUSAGE_SVG}<span>${t('tagline')}</span></div>
         <div class="title-actions">
-          ${hasSave ? '<button class="btn primary" data-act="continue">继续行程 <small>读取存档</small></button>' : ''}
-          <button class="btn ${hasSave ? '' : 'primary'}" data-act="new">开始 <small>选择身份</small></button>
-          <button class="btn ghost" data-act="records">游玩记录 <small>${loadRecords().length ? `${loadRecords().length} 局` : '还没有记录'}</small></button>
-          <button class="btn ghost" data-act="archive">事故档案 <small>真实案例</small></button>
-          <button class="btn ghost" data-act="about">说明 <small>操作 · 机制</small></button>
+          ${hasSave ? `<button class="btn primary" data-act="continue">${t('continue')} <small>${t('continueSmall')}</small></button>` : ''}
+          <button class="btn ${hasSave ? '' : 'primary'}" data-act="new">${t('start')} <small>${t('startSmall')}</small></button>
+          <button class="btn ghost" data-act="records">${t('records')} <small>${loadRecords().length ? t('recordsCount', { count: loadRecords().length }) : t('recordsEmpty')}</small></button>
+          <button class="btn ghost" data-act="archive">${t('archive')} <small>${t('archiveSmall')}</small></button>
+          <button class="btn ghost" data-act="about">${t('about')} <small>${t('aboutSmall')}</small></button>
+          <button class="btn ghost language-switch" data-act="language" aria-label="${t('language')}">${t('language')}</button>
         </div>
         <div class="socials">
-          <div class="socials-k">作者 · 关注我</div>
-          <div class="socials-row">${SOCIALS.map((x) => `<a class="social" href="${x.url}" target="_blank" rel="noopener">${x.svg}<span><b>${x.name}</b><small>${esc(x.handle)}</small></span></a>`).join('')}</div>
+          <div class="socials-k">${locale === 'en' ? 'AUTHOR · FOLLOW' : '作者 · 关注我'}</div>
+          <div class="socials-row">${SOCIALS.map((x) => `<a class="social" href="${x.url}" target="_blank" rel="noopener">${x.svg}<span><b>${esc(x.name)}</b><small>${esc(x.handle)}</small></span></a>`).join('')}</div>
         </div>
       </div>
       <div class="title-foot">
-        ${this.privacyControls()}
-        ${this.remainsControls()}
-        本游戏根据公开报道改编，人物均为化名或虚构。鳌太线位于太白山国家级自然保护区，<b>自2018年起禁止穿越</b>。
-        游戏中的路线、海拔与数值均为近似，<b>不能作为任何出行参考</b>。
+        ${this.privacyControls(locale)}
+        ${this.remainsControls(locale)}
+        ${t('footer1')}<b>${t('footer2')}</b>${t('footer3')}
+        ${t('footer4')}<b>${t('footer5')}</b>${t('footer6')}
       </div>`, 'title-page', 'title');
     this._bind(page, {
+      'secret-stamp': () => {
+        if (isRoleUnlocked('qu')) return;
+        secretClicks += 1;
+        if (secretClicks >= 10 && unlockRole('qu')) this.toast(locale === 'en' ? 'Something hidden has been uncovered.' : '印章下面好像藏着什么。', 'info', 2500);
+      },
+      language: () => { setLocale(locale === 'en' ? 'zh-CN' : 'en'); this.showTitle({ hasSave }); },
       privacy: () => { this.app.toggleAnalytics(); this.showTitle({ hasSave }); },
       remains: () => { this.app.toggleRemains(); this.showTitle({ hasSave }); },
       'remains-shared': () => { this.app.toggleRemains(true); this.showTitle({ hasSave }); },
@@ -204,6 +220,7 @@ export class UI {
   showRoles() {
     let sel = null;
     let difficulty = 'easy';
+    const availableRoles = ROLES.filter((role) => !role.hidden || isRoleUnlocked(role.id));
     const card = (r) => `
       <button class="role" data-act="pick" data-id="${r.id}">
         <div class="role-top">${this._avatar(r.look)}<div><h3>${esc(r.name)}</h3><div class="quote">${esc(r.tagline)}</div></div></div>
@@ -221,12 +238,13 @@ export class UI {
         <div class="btns" role="group" aria-label="行程难度">${DIFFICULTIES.map((d) => `<button class="btn ${d.id === difficulty ? 'primary' : 'ghost'}" data-act="difficulty" data-id="${d.id}" aria-pressed="${d.id === difficulty}">${esc(d.name)}</button>`).join('')}</div>
         <p class="kicker" data-difficulty-note style="margin:8px 0 0">轻松：双倍健康，仍会受伤、失温和消耗补给。</p>
       </div>
-      <div class="roles">${ROLES.map(card).join('')}</div>
+      <div class="roles">${availableRoles.map(card).join('')}</div>
       <div class="role-bar"><button class="btn primary" data-act="go" disabled>先选一个身份</button></div>`, 'dim', 'roles');
     const go = $('[data-act="go"]', page);
     this._bind(page, {
       back: () => this.app.toTitle(),
       pick: (d, b) => {
+        if (!availableRoles.some((role) => role.id === d.id)) return;
         sel = d.id;
         page.querySelectorAll('.role').forEach((x) => x.classList.toggle('sel', x === b));
         go.disabled = false;
@@ -566,7 +584,7 @@ export class UI {
 
     const s = d.status;
     const chips = [[d.difficulty || '标准', 'g']];
-    if (s.collapsed) chips.push(['走不动了', '']);
+    if (s.collapsed) chips.push(['体力耗尽 · 可爬行', '']);
     if (s.shiver) chips.push(['发抖', 'w']);
     if (s.sweat) chips.push(['出汗', 'w']);
     if (s.wet) chips.push(['衣服湿了', 'w']);
@@ -609,6 +627,11 @@ export class UI {
   setEffects(e) {
     const f = this.el.fx;
     f.cold.style.opacity = (e.cold * 0.7).toFixed(2);
+    f.hunger.style.opacity = (e.hunger * 0.62).toFixed(2);
+    f.thirst.style.opacity = (e.thirst * 0.58).toFixed(2);
+    f.fatigue.style.opacity = (e.fatigue * 0.7).toFixed(2);
+    f.wet.style.opacity = (e.wet * 0.62).toFixed(2);
+    f.altitude.style.opacity = (e.altitude * 0.62).toFixed(2);
     f.hurt.style.opacity = (e.hurt * 0.8).toFixed(2);
     f.stress.style.opacity = (e.stress * 0.8).toFixed(2);
     f.white.style.opacity = e.white.toFixed(2);
@@ -790,7 +813,8 @@ export class UI {
     const clothIds = Object.keys(st.inv).filter((id) => ITEMS[id]?.kind === 'cloth' && st.inv[id] > 0);
     const w = packWeight(st), cap = packCapacity(st);
     const foods = Object.keys(ITEMS).filter((id) => ITEMS[id].kind === 'food' && has(st, id));
-    const canCook = has(st, 'stove') && has(st, 'pot');
+    const fire = ensureFire(st);
+    const canCook = has(st, 'stove') && has(st, 'pot') && fireCostAvailable(st, 1);
     const gasN = st.gas.normal + st.gas.alpine;
     const stat = (k, v, cls = '') => `<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
     const injuries = [b.sprain > 0 && '崴脚', b.fracture >= 1 && '骨折', b.fracture > 0 && b.fracture < 1 && '骨折（已固定）', b.frostbite > 25 && `冻伤 ${Math.round(b.frostbite)}`, b.snowblind > 30 && '雪盲', b.altSick > 30 && '高反'].filter(Boolean);
@@ -835,7 +859,7 @@ export class UI {
       <div class="sec"><h4>饮水 <em>${gasN > 0 ? `气罐 ${st.gas.alpine ? '高山' + st.gas.alpine : ''}${st.gas.alpine && st.gas.normal ? ' / ' : ''}${st.gas.normal ? '普通' + st.gas.normal : ''} 次` : '无气罐'}</em></h4>
         ${has(st, 'thermos') ? devRow('保温杯', `${st.thermos.l.toFixed(2)} L · ${st.thermos.l > 0.04 ? Math.round(st.thermos.temp) + '℃' : '空'}`, `<button class="sbtn" data-act="thermos" ${st.thermos.l > 0.04 ? '' : 'disabled'}>喝一口</button>`) : ''}
         ${devRow('水瓶', `液态 ${st.water.liquid.toFixed(2)} L · 结冰 ${st.water.frozen.toFixed(2)} L`, `<button class="sbtn" data-act="water" ${st.water.liquid > 0.04 ? '' : 'disabled'}>喝一口</button>`)}
-        ${devRow('烧雪化水', canCook ? (gasN > 0 ? '帐外烧水 · 约15分钟，耗一次气。灌进保温杯或直接喝。' : '没有气罐了') : '需要炉头和锅 · 帐外操作', `<button class="sbtn" data-act="cook" ${canCook && gasN > 0 ? '' : 'disabled'}>烧水</button>`)}
+        ${devRow('烧雪化水', canCook ? `已点火 · 火焰余额${fire.balance} · 帐外约15分钟` : fire.active ? `火焰余额${fire.balance}不足或需要炉头和锅` : '需要先在营地页点火，再回到帐外烧水', `<button class="sbtn" data-act="cook" ${canCook ? '' : 'disabled'}>烧水</button>`)}
         ${devRow('吃雪', '解渴很少，消耗体温', '<button class="sbtn alt" data-act="snow">吃雪</button>')}
       </div>
       <div class="sec"><h4>食物 <em>饱食 ${Math.round(b.food)}</em></h4>
@@ -1019,11 +1043,15 @@ export class UI {
       <h4>${info.bivy ? '露宿' : '营地'} · ${esc(g.placeName())}
         ${info.tentHealth !== null ? `<span class="mono" style="font-size:18px;color:${info.tentHealth < 40 ? 'var(--red)' : 'var(--muted)'}">帐篷 ${info.tentHealth}%</span>` : ''}</h4>
       ${info.rescue !== null ? `<div class="tip" style="border-color:var(--orange)">搜救正在进行，抵达时间无法确认。保持体温，原地等待。</div>` : ''}
+       <div class="tip fire-tip" style="border-color:${info.fireLit ? 'var(--orange)' : 'var(--line2)'}">${info.fireLit ? `炉火已点燃 · ${info.fireFuel === 'alpine' ? '高山气罐' : '普通气罐'} · 火焰余额 ${info.fireBalance}` : info.canLightFire ? '炉火未点燃。先点火，才能烧水、煮方便面或用火烘衣。' : '没有可点燃的完整炉具（需要炉头、打火机和气罐）。'}${info.fireScrapped ? ` · 已报废 ${info.fireScrapped} 瓶` : ''}</div>
        ${canDry ? `<div class="tip dry-tip">帐内只安全晾衣，不生明火。${dryCount ? `可晾 ${dryCount} 件未穿湿衣。` : '请先在背包脱下湿衣，并留足一层保暖衣。'}</div>` : ''}
       <div class="btns">
         <button class="btn primary" data-act="sleep">${info.night ? '睡到天亮' : '小睡两小时'}</button>
         <button class="btn" data-act="rest">休息1小时</button>
-        <button class="btn" data-act="cook" ${info.canCook ? '' : 'disabled'}>烧水</button>
+        ${info.canLightFire ? '<button class="btn" data-act="light">点火</button>' : ''}
+         <button class="btn" data-act="cook" ${info.canCook ? '' : 'disabled'}>烧水${info.fireLit ? ` · ${info.fireBalance}` : ''}</button>
+         <button class="btn" data-act="noodle" ${info.canNoodle ? '' : 'disabled'}>煮方便面</button>
+         ${info.canDryFire ? `<button class="btn" data-act="dryFire">火烘湿衣 · ${dryCount}件</button>` : ''}
          ${canDry ? `<button class="btn" data-act="dry" ${dryCount ? '' : 'disabled'}>晾干湿衣${dryCount ? ` · ${dryCount}件` : ''}</button>` : ''}
         <button class="btn" data-act="pack">背包</button>
         ${info.rescue !== null ? '<button class="btn" data-act="wait">等待救援</button>' : info.canSos ? '<button class="btn danger" data-act="sos">求救</button>' : ''}
@@ -1033,7 +1061,10 @@ export class UI {
     this._bind(box, {
       sleep: () => g.sleep(),
       rest: async () => { this.hideCampMenu(); await g.restFor(60); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
-      cook: async () => { this.hideCampMenu(); await g.cook(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+      light: () => g.lightCampFire(),
+       cook: async () => { this.hideCampMenu(); await g.cook(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+       noodle: async () => { this.hideCampMenu(); await g.cookNoodles(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
+       dryFire: async () => { this.hideCampMenu(); await g.dryClothesByFire(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
       pack: () => this.openPack(),
        sos: async () => { await g.sos({}); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },
       wait: async () => { this.hideCampMenu(); await g.waitForRescue(); if (g.st?.camp && !g.over) this.showCampMenu(g.campMenuInfo()); },

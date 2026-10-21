@@ -1,6 +1,6 @@
 // Stable server-side identifiers only; never send dialogue or free text to D1.
 // Tests compare this catalogue with the actual frontend data and optionIds.
-export const ROLES = new Set(["student","veteran","blogger","runner","nurse","coder","cook","geographer","porter","photographer"]);
+export const ROLES = new Set(["student","veteran","blogger","runner","nurse","coder","cook","geographer","porter","photographer","qu"]);
 export const DIFFICULTIES = new Set(['easy', 'normal', 'hardcore']);
 export const ENDINGS = new Set(['sausage', 'sigma', 'retreat_wild', 'turnback', 'retreat', 'retreat_branch', 'rescued', 'cross', 'dayehai', 'dead']);
 export const CAUSES = new Set(['hypothermia', 'fall', 'dehydration', 'starvation', 'injury', 'exhaustion']);
