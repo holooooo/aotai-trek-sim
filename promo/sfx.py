@@ -143,13 +143,22 @@ def load(path):
 
 
 voice = load(os.environ.get("VOICE_PATH", os.path.join(B, "voice.wav")))[:N]
-bed = load(os.path.join(B, "bed.flac"))
-bed = bed[:N] if len(bed) >= N else np.pad(bed, (0, N - len(bed)))
 
 # 旁白响度归一到 -16.5 LUFS 量级：用 RMS 近似
 def rms(x):
     return np.sqrt(np.mean(x ** 2) + 1e-12)
 voice *= 0.11 / rms(voice[int(0.5 * SR):])
+
+# 无BGM版只取干净分轨，绝不从已含音乐的混音中做消除。
+if os.environ.get("STEMS_ONLY") == "1":
+    for name, data in (("voice_stem.wav", voice), ("sfx_stem.wav", sfx * 0.5)):
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
+                        "-c:a", "pcm_f32le", os.path.join(B, name)], input=data.astype(np.float32).tobytes(), check=True)
+    print("voice_stem.wav + sfx_stem.wav ready; no music file loaded")
+    raise SystemExit(0)
+
+bed = load(os.path.join(B, "bed.flac"))
+bed = bed[:N] if len(bed) >= N else np.pad(bed, (0, N - len(bed)))
 bed *= 0.045 / rms(bed)
 
 # 闪避：说话时把配乐压低 7 dB，120ms 攻击 / 释放
