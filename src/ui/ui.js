@@ -83,6 +83,7 @@ export class UI {
     this.el.hud.classList.toggle('ui-blocked', !!this.modalOpen);
     this.el.hud.classList.toggle('dialog-mode', this.dialogOpen);
     this.el.joy.classList.toggle('ui-blocked', !!this.modalOpen);
+    this.el.toasts.style.visibility = this.dialogOpen ? 'hidden' : '';
   }
 
   // 简单事件委托：data-act
@@ -682,6 +683,7 @@ export class UI {
   // ———————————————————— 对话 ————————————————————
   dialog(opts) {
     const run = () => new Promise((resolve) => {
+      if (opts.shouldOpen && !opts.shouldOpen()) { resolve(null); return; }
       this.dialogOpen = true;
       this._syncInput();
       const d = this.el.dialog;
@@ -1045,6 +1047,7 @@ export class UI {
       ${info.rescue !== null ? `<div class="tip" style="border-color:var(--orange)">搜救正在进行，抵达时间无法确认。保持体温，原地等待。</div>` : ''}
        <div class="tip fire-tip" style="border-color:${info.fireLit ? 'var(--orange)' : 'var(--line2)'}">${info.fireLit ? `炉火已点燃 · ${info.fireFuel === 'alpine' ? '高山气罐' : '普通气罐'} · 火焰余额 ${info.fireBalance}` : info.canLightFire ? '炉火未点燃。先点火，才能烧水、煮方便面或用火烘衣。' : '没有可点燃的完整炉具（需要炉头、打火机和气罐）。'}${info.fireScrapped ? ` · 已报废 ${info.fireScrapped} 瓶` : ''}</div>
        ${canDry ? `<div class="tip dry-tip">帐内只安全晾衣，不生明火。${dryCount ? `可晾 ${dryCount} 件未穿湿衣。` : '请先在背包脱下湿衣，并留足一层保暖衣。'}</div>` : ''}
+      <div class="tip">营地余温 · 成功${info.bivy ? '起身出发' : '收起营地'}后会更新回溯点；遇难时可选择从这里继续。无需点火。</div>
       <div class="btns">
         <button class="btn primary" data-act="sleep">${info.night ? '睡到天亮' : '小睡两小时'}</button>
         <button class="btn" data-act="rest">休息1小时</button>

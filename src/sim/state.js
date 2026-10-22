@@ -48,6 +48,7 @@ export function createState(roleId, difficulty = 'easy') {
     s: 0,
     maxS: 0,
     camp: null,
+    campCheckpoint: null,
     rescue: null,
     npcs: {},
     companions: [],

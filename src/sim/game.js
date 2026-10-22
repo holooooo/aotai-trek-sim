@@ -33,6 +33,7 @@ import { STRESS_EVENTS } from '../data/events-stress.js';
 import { EXIT_EVENTS } from '../data/events-exits.js';
 import { clamp, lerp } from '../world/noise.js';
 import { addRecord, loadRecords, summarize, endingKey, ENDING_LIST, EPILOGUE_LIST } from './records.js';
+import { createCampCheckpoint, ensureCampCheckpoint, restoreCampCheckpoint } from './camp-checkpoint.js';
 
 export const TIME_SCALE = 8; // 游戏分钟 / 现实秒
 const BASE_SPEED = 6.4;
@@ -77,6 +78,12 @@ export class Game {
     ensureFire(st);
     ensureLampMode(st);
     ensureEncounters(st, NPCS, ALL_EVENTS, { fresh });
+    ensureCampCheckpoint(st);
+    this.gust = { timer: 6, warn: 0, push: 0 };
+    this.push.set(0, 0);
+    this.env = null;
+    this.c = null;
+    this._pollSource = null;
     st.pace = st.pace === 'fast' ? 'fast' : 'walk';
     this.role = roleById(st.role);
     this.over = false;
@@ -881,8 +888,8 @@ export class Game {
         this.toast('这段事件未能完成，已恢复到选择前的状态。', 'warn');
       }
     } finally {
-      this.eventSnapshot = null;
       if (this.st === st) {
+        this.eventSnapshot = null;
         this.save();
         if (!this.over && st.camp?.inside && !this.campPlacing) this.ui.showCampMenu(this.campMenuInfo());
       }
@@ -1022,8 +1029,8 @@ export class Game {
     }
     catch (e) { console.error(e); if (propagate) throw e; }
     finally {
-      this._pollSource = previousSource;
       if (this.st === st) {
+        this._pollSource = previousSource;
         if (!paced && !this.over && (this._dialogSerial || 0) !== serial) recordDialog(st);
         if (focused) this.eventCamera?.end();
         if (this.over) { this.eventCamera?.reset(); this.clearEventActor(); }
@@ -1643,6 +1650,7 @@ export class Game {
     let t = 30 * (st.body.frostbite > 50 ? 1.5 : 1) * (this.wx().wind > 15 ? 1.5 : 1) * (st.role === 'veteran' ? 0.7 : 1);
     this.ui.setBusy('搭帐篷……');
     await this.skip(t, 'idle');
+    if (this.st !== st) return;
     this.ui.setBusy(null);
     if (this.over) return;
     st.camp = { x: gx, z: gz, rot: cp.rot, tent: cp.tent, exposure: e, orient: o.orient, doorIntoWind: o.doorIntoWind, health: 100, inside: true, collapsed: false };
@@ -1773,11 +1781,13 @@ export class Game {
 
   async packCamp() {
     const st = this.st;
-    if (!st.camp) return;
+    if (!st?.camp || this.over || this.busy || this.eventRunning || this.eventSnapshot || st.ending) return;
+    this.autoWalk = false;
     this.ui.hideCampMenu();
     if (!st.camp.bivy) {
       this.ui.setBusy('收帐篷……');
       await this.skip(st.camp.collapsed ? 25 : 15, 'idle');
+      if (this.st !== st) return;
       this.ui.setBusy(null);
       if (this.over || this.st !== st) return;
       if (this.tentMesh) this.world.scene.remove(this.tentMesh);
@@ -1787,7 +1797,11 @@ export class Game {
     st.camp = null;
     ensureClothes(st).drying = [];
     this.player.visible = true;
-    this.save();
+    st.pos = { x: this.pos.x, z: this.pos.z };
+    const checkpoint = createCampCheckpoint(st, this.placeName());
+    if (checkpoint) st.campCheckpoint = checkpoint;
+    const saved = this.save();
+    if (checkpoint) this.toast(saved ? '营地余温已留存。遇难时可从本次收营后继续。' : '收营完成，但存档写入失败；本次营地回溯仅在当前页面有效。', saved ? 'good' : 'warn', 5500);
   }
 
   async sleep() {
@@ -1813,19 +1827,24 @@ export class Game {
         },
         onStep: (m) => { left -= m; },
       });
+      if (this.st !== st) return;
       if (!reason || this.over) break;
       this.ui.setBusy(null);
       if (reason === 'collapse') await this.tentCollapse();
       if (reason === 'cold') { coldWoke = true; const goOn = await this.coldWake(); if (!goOn) { left = 0; break; } }
+      if (this.st !== st || this.over) return;
       if (reason === 'snow') {
         snowDone = true;
         const c = await this.dialog({ pollSource: 'scene:camp_snow', who: '深夜', text: ['帐篷顶被积雪压得越来越低，几乎贴到了你的脸。'], choices: [{ id: 'clear', label: '爬出去清雪', sub: '穿好衣服，去帐篷外面看看' }, { id: 'ignore', label: '不管了，继续睡' }] });
+        if (this.st !== st || this.over) return;
         if (c === 'clear') { st.body.core -= 0.3; st.camp.health = Math.min(100, st.camp.health + 10); await this.skip(15, 'idle'); }
         else st.camp.health -= 35;
       }
+      if (this.st !== st || this.over) return;
       if (!st.camp) break;
       this.ui.setBusy(st.camp.bivy ? '露宿……' : '睡觉……', true);
     }
+    if (this.st !== st) return;
     this.ui.setBusy(null);
     if (this.over) return;
     st.stats.nights++;
@@ -1845,10 +1864,12 @@ export class Game {
         { id: 'hold', label: '裹着塌掉的帐篷硬撑到天亮' },
       ],
     });
+    if (this.st !== st || this.over) return;
     if (c === 'fix') {
       st.body.core -= 0.7;
       st.body.wet += 10;
       await this.skip(30, 'idle');
+      if (this.st !== st || this.over) return;
       st.camp.health = 40;
       this.toast('你用石头压住了帐角，勉强把帐篷撑了起来。', 'warn');
     } else {
@@ -1871,13 +1892,14 @@ export class Game {
     choices.push({ id: 'sleep', label: '继续睡' });
     choices.push({ id: 'up', label: '不睡了，起来' });
     const c = await this.dialog({ pollSource: 'scene:cold_wake', who: '冻醒', text: ['你被冻醒了，止不住地发抖。帐篷内壁上结满了霜。', `现在是 ${fmtClock(st.time)}。离天亮还有很久。`], choices });
+    if (this.st !== st || this.over) return false;
     if (c === 'cook') await this.cook(true);
     if (c === 'drink') this.drinkThermos();
     if (c === 'eat') this.eat(this._pickFood());
     if (c === 'warmer') this.useWarmer();
     if (c === 'insul') await this.setInsulation(true);
     if (c === 'move') { st.body.stamina -= 8; st.body.core += 0.25; st.body.food -= 2; }
-    return c !== 'up';
+    return this.st === st && !this.over && c !== 'up';
   }
 
   async restFor(minutes) {
@@ -1886,6 +1908,7 @@ export class Game {
     this.ui.setBusy(`休息 ${minutes} 分钟……`, true);
     let warned = false;
     await this.skip(minutes, 'rest', { check: () => (!warned && st.body.core < 34.8 ? 'cold' : null) });
+    if (this.st !== st) return;
     this.ui.setBusy(null);
     if (!this.over && st.body.core < 34.8) this.toast('坐着不动，你越来越冷了。', 'danger');
   }
@@ -1897,30 +1920,37 @@ export class Game {
     await this.skip(240, st.camp && st.camp.inside ? 'rest' : 'idle', {
       check: () => (st.body.core < 34 && this.roll(0.08) ? 'cold' : null),
     });
+    if (this.st !== st) return;
     this.ui.setBusy(null);
     if (!this.over) this.toast(st.body.core < 34 ? '你冷得受不了，必须做点什么。' : '还没有等到救援队。你检查了一遍衣物和补给。', st.body.core < 34 ? 'danger' : 'info');
   }
 
   async skip(minutes, mode, opts = {}) {
+    const st = this.st;
     this.busy = true;
     let done = 0;
     let reason = null;
     const step = opts.step ?? 10;
-    while (done < minutes && !this.over) {
+    while (done < minutes && !this.over && this.st === st) {
       const m = Math.min(step, minutes - done);
       this.simulate(m, mode, { skip: true });
       done += m;
+      if (this.st !== st) return 'state';
       opts.onStep?.(m);
-      if (this.over) break;
+      if (this.over || this.st !== st) break;
       reason = opts.check?.() ?? null;
       if (reason) break;
       await nextFrame();
     }
-    this.busy = false;
-    return reason;
+    if (this.st === st) this.busy = false;
+    return this.st === st ? reason : 'state';
   }
 
-  async passTime(min) { await this.skip(min, this.st.camp && this.st.camp.inside ? 'rest' : 'idle'); }
+  async passTime(min) {
+    const st = this.st;
+    await this.skip(min, st.camp && st.camp.inside ? 'rest' : 'idle');
+    return this.st === st && !this.over;
+  }
 
   // ———————————————————— 物品使用 ————————————————————
   async setInsulation(worn) {
@@ -2143,8 +2173,38 @@ export class Game {
     this.over = true;
     this.autoWalk = false;
     const st = this.st;
+    this.ui.hideCampMenu();
+    this.ui.closeSheet?.();
     const resuming = !!st.ending?.pending;
     st.ending = resuming ? st.ending : { type, cause, pending: true };
+    ({ type, cause } = st.ending);
+    if (type === 'dead' && st.ending.campChoiceResolved !== true) {
+      const camp = ensureCampCheckpoint(st);
+      if (camp) {
+        // 先存待选死亡状态。刷新后仍会回到这个选择，不提前写结局或血迹。
+        this.save();
+        const choice = await this.ui.dialog({ shouldOpen: () => this.st === st, who: '营地余温', sub: '仅为游戏回溯机制，现实中生命无法重来',
+          text: [`你在途中遇难了。最近一次收营：${camp.place} · ${fmtDateTime(camp.state.time)}。`, '可以回到收营完成的一刻：位置、时间、身体、物资和同行者都会恢复；之后的进展会撤销。', '这处余温可反复回溯，直到下次成功收营更新。也可以接受这次遇难，照常进入结局。'],
+          choices: [{ id: 'continue', label: '从最近一次收营后继续', sub: '恢复当时状态，不额外扣除物资' }, { id: 'accept', label: '接受这次遇难', sub: '结束本局，保留正常遇难结局' }] });
+        if (this.st !== st) return;
+        if (choice === 'continue') {
+          const restored = restoreCampCheckpoint(st);
+          if (restored) {
+            this.ui.setBusy?.(null);
+            this.ui.hideCampPlacer?.();
+            this.ui.closeSheet?.();
+            if (this.campPlacing) this.cancelCamp();
+            this.world.showHallucination(0, 0, false);
+            this.start(restored);
+            this.save();
+            this.toast('你回到了收营后的那一刻。沿途的风雪，重新开始。', 'good', 5000);
+            return;
+          }
+        }
+      }
+      st.ending.campChoiceResolved = true;
+      this.save();
+    }
     if (type === 'dead') this.remains?.recordDeath(st, this.pos, cause, voxToAlt(this.pos.y));
     this.ui.hideCampMenu();
     if (!resuming) st.story.resolutions = [];
@@ -2511,17 +2571,21 @@ export class Game {
   toast(text, kind = 'info', ms) { this.ui.toast(text, kind, ms); }
   async dialog(opts) {
     const st = this.st;
+    if (!st || this.over && !st.ending?.pending) return null;
+    const canOpen = () => this.st === st && (!this.over || st.ending?.pending && st.ending.type !== 'dead');
+    if (!canOpen()) return null;
     if (this._eventFocus?.id === 'hallucination' && this.world.hallu?.visible) this.beginEventFocus({ object: this.world.hallu, event: 'hallucination' });
     this._dialogSerial = (this._dialogSerial || 0) + 1;
     const poll = makeQuestion(opts.pollSource || this._pollSource, opts.choices);
-    const result = await this.ui.dialog({ ...opts, poll });
-    if (!this.eventRunning && this.st === st && !this.over) recordDialog(st);
+    const result = await this.ui.dialog({ ...opts, poll, shouldOpen: canOpen });
+    if (this.st !== st) return null;
+    if (!this.eventRunning && !this.over) recordDialog(st);
     return result;
   }
   say(who, text, ok = '继续') { return this.dialog({ who, text, choices: [{ id: 'ok', label: ok }] }); }
 
   save() {
-    if (!this.st || this.over && !this.st.ending?.pending) return;
+    if (!this.st || this.over && !this.st.ending?.pending) return false;
     try {
       let data = this.st;
       if (this.eventSnapshot && !this.over) {
@@ -2531,7 +2595,8 @@ export class Game {
         this.eventSnapshot = JSON.stringify(data);
       }
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch (e) { /* 存储受限不阻止剧情 */ }
+      return true;
+    } catch (e) { return false; /* 存储受限不阻止剧情 */ }
   }
 
   static loadSave() {
@@ -2541,6 +2606,7 @@ export class Game {
       const st = JSON.parse(raw);
       if (!st || st.v !== 1 || st.ending && !st.ending.pending) return null;
       ensureStoryState(st);
+      ensureCampCheckpoint(st);
       return st;
     } catch (e) { return null; }
   }

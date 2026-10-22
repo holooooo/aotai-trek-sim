@@ -39,7 +39,7 @@ export const NPCS = [
       });
       if (c === 'persuade') {
         const p = g.persuadeChance(0.45);
-        await g.passTime(15);
+        if (!await g.passTime(15)) return;
         if (g.roll(p)) {
           g.setFate(npc.id, 'safe');
           g.addStress(-8);
@@ -228,7 +228,7 @@ export const NPCS = [
         }
         if (c === 'persuade') {
           const p = g.persuadeChance(warmed ? 0.55 : 0.35);
-          await g.passTime(20);
+          if (!await g.passTime(20)) return;
           if (g.roll(p)) {
             g.recruit(npc.id);
             g.setFate(npc.id, 'following');
