@@ -1,5 +1,6 @@
 // Promo overlay animation. Deterministic: window.renderFrame(t) poses everything for video time t (seconds).
 import { icon } from '../src/ui/icons.js';
+import narrationFixes from './narration-fixes.json';
 
 const $ = (s) => document.querySelector(s);
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
@@ -137,9 +138,7 @@ const SUBS = [
   [51.27, 54.15, '在管护站门口转身，去景区<b>买根烤肠</b>。'],
   [54.31, 56.42, '全游戏<b>唯一一个</b>不靠运气的结局。'],
   [57.37, 59.38, '门口没有烤肠的山，<b>不要爬</b>。'],
-  [59.54, 65.60, '浏览器就能玩，代码全开源。<br>源码和游玩地址见评论区。'],
-  [67.18, 69.72, '说真的，这游戏<b>实在太难了</b>。'],
-  [69.88, 74.78, '手机就能玩，但主播自己都没有通关过。大佬们评论区分享下技巧呀！'],
+  ...narrationFixes.cues.map(({ start, end, text }) => [start, end, text]),
 ];
 
 const els = {};
@@ -193,7 +192,7 @@ function renderFrame(t) {
     $('#sub').style.opacity = 1;
   } else $('#sub').style.opacity = 0;
 
-  $('#sub').style.bottom = t >= 59.54 ? '60px' : '252px';
+  $('#sub').style.bottom = t >= 59.54 || (t >= 42.28 && t < 49.28) ? '60px' : '252px';
   // 常驻角标
   const ui = (t >= 15.02 && t < 20.49) || (t >= 21.55 && t < 25.05) || (t >= 30.45 && t < 30.66) || (t >= 49.28 && t < 53.10);
   $('#chip').style.opacity = t > 1.6 && t < 59.4 && !ui ? 1 : 0;

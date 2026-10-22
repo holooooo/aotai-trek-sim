@@ -1,0 +1,63 @@
+{
+  "duration": 75,
+  "sampleRate": 44100,
+  "replaceRanges": [
+    [
+      42.28,
+      49.28
+    ],
+    [
+      59.54,
+      75
+    ]
+  ],
+  "cues": [
+    {
+      "id": "bloodtrail_0",
+      "start": 42.6,
+      "end": 45.48,
+      "text": "路上还有你和其他玩家的血迹。",
+      "audio": "build/tts/verified_bloodtrail_0_ec5368dd_t1.wav",
+      "generate": false
+    },
+    {
+      "id": "bloodtrail_1",
+      "start": 45.65,
+      "end": 48.98,
+      "text": "靠近就能查看死因，血迹也能随时关闭。",
+      "audio": "build/tts/verified_bloodtrail_1_e27f7332_t1.wav",
+      "generate": false
+    },
+    {
+      "id": "cta_0",
+      "start": 59.54,
+      "end": 62.45,
+      "text": "浏览器就能玩，代码全开源。",
+      "audio": "build/tts/sync_cta_0.wav",
+      "generate": true
+    },
+    {
+      "id": "cta_1",
+      "start": 62.61,
+      "end": 65.6,
+      "text": "想玩的话，评论区有链接。",
+      "audio": "build/tts/verified_cta_1_2f1e39f6_t1.wav",
+      "generate": false
+    },
+    {
+      "id": "tail_hook_0",
+      "start": 67.18,
+      "end": 69.72,
+      "text": "说真的，这游戏实在太难了。",
+      "audio": "build/tts/tail_hook_0.wav"
+    },
+    {
+      "id": "tail_hook_1",
+      "start": 69.88,
+      "end": 74.78,
+      "text": "手机就能玩，但主播还没通关。大佬们，评论区分享技巧呀！",
+      "audio": "build/tts/verified_tail_hook_1_ced8c208_t4.wav",
+      "generate": false
+    }
+  ]
+}

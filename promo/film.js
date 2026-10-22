@@ -311,7 +311,7 @@ SHOTS.bloodtrail = {
     const commentT = clamp((t - shot.danmaku) / (shot.dur - shot.danmaku));
     ui.danmaku.style.opacity = t >= shot.danmaku && t < shot.dur ? 1 : 0;
     ui.danmaku.style.transform = `translateX(${lerp(innerWidth + 16, -ui.danmaku.offsetWidth - 16, commentT)}px)`;
-    ui.subtitle.style.opacity = fade(0.55, shot.dur - 0.18);
+    ui.subtitle.style.opacity = P.get('narrated') === '1' ? 0 : fade(0.55, shot.dur - 0.18);
     ui.subtitle.style.transform = 'translateX(-50%)';
     S.ui.dataset.phase = t < 2.25 ? 'discover' : t < shot.inspect ? 'approach' : anonymous ? 'anonymous' : 'own';
   },
